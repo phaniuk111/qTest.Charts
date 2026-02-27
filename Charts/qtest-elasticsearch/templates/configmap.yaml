@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.service.name }}-config
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "qtest-elasticsearch.labels" . | nindent 4 }}
+data:
+  elasticsearch.yml: |
+    cluster.name: {{ .Values.clusterName }}
+    network.host: "0.0.0.0"
+    http.port: {{ .Values.service.httpPort }}
+    transport.port: {{ .Values.service.transportPort }}
+
+    # Discovery
+    discovery.seed_hosts: [{{ include "qtest-elasticsearch.seedHosts" . }}]
+    cluster.initial_master_nodes: [{{ include "qtest-elasticsearch.initialMasterNodes" . }}]
+
+    # Security — ES 8.x enables security by default; explicitly disable all
+    # sub-features when security is off to prevent auto-configuration failures.
+    xpack.security.enabled: {{ .Values.security.enabled }}
+    {{- if not .Values.security.enabled }}
+    xpack.security.enrollment.enabled: false
+    xpack.security.http.ssl.enabled: false
+    xpack.security.transport.ssl.enabled: false
+    {{- end }}
+
+    # Performance
+    bootstrap.memory_lock: false
+
+    {{- range $key, $val := .Values.extraConfig }}
+    {{ $key }}: {{ $val | quote }}
+    {{- end }}

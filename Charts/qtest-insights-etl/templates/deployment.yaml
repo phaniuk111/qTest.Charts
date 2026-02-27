@@ -34,6 +34,7 @@ spec:
         heritage: "{{ .Release.Service }}"
     spec:
       serviceAccountName: {{ .Values.serviceAccount.name }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountsatoken | default false }}
     {{ if .Values.imageCredentials.enabled }}
       {{ if .Values.imageCredentials.existingImageCredentials }}
       imagePullSecrets:

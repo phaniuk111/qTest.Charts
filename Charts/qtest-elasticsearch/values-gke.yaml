@@ -1,0 +1,60 @@
+# GKE + ASM Specific Values for qTest Elasticsearch
+# ──────────────────────────────────────────────────
+# Usage (deploy BEFORE qtest-mgr):
+#   kubectl create namespace qtest || true
+#   kubectl label namespace qtest istio-injection=enabled --overwrite
+#   helm upgrade --install qtest-elasticsearch . \
+#     -f values.yaml -f values-gke.yaml -n qtest
+#
+# Prerequisites:
+#   - GKE cluster with ASM / Istio sidecar injection enabled on namespace
+#   - StorageClass "standard-rwo" (GKE default pd-balanced) or "premium-rwo" (pd-ssd)
+
+## ── GKE Storage & topology ───────────────────────────────────
+master:
+  replicas: 1
+  persistence:
+    storageClass: "standard-rwo"
+    size: 10Gi
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                elasticsearch.role: master
+            topologyKey: kubernetes.io/hostname
+
+data:
+  replicas: 2
+  persistence:
+    storageClass: "standard-rwo"
+    size: 50Gi
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                elasticsearch.role: data
+            topologyKey: kubernetes.io/hostname
+
+## ── Resource tuning for GKE ──────────────────────────────────
+## Adjust based on your node pool machine type. Reasonable starting
+## points for e2-standard-4 / e2-standard-8 nodes:
+# data:
+#   heapSize: 4g
+#   resources:
+#     requests:
+#       cpu: 1000m
+#       memory: 4Gi
+#     limits:
+#       cpu: 4000m
+#       memory: 8Gi
+
+## vm.max_map_count is already set on GKE nodes (COS / Ubuntu),
+## skip the privileged init container.
+initSysctl:
+  enabled: false

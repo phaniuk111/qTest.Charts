@@ -1,0 +1,17 @@
+{{- if .Values.istio.enabled }}
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: {{ template "qtest-mgr.fullname" . }}
+  namespace: {{ .Values.namespace.name }}
+spec:
+  host: {{ .Values.service.serviceName }}
+  trafficPolicy:
+    {{- if .Values.istio.sessionAffinity }}
+    loadBalancer:
+      consistentHash:
+        httpCookie:
+          name: JSESSIONID
+          ttl: 4h
+    {{- end }}
+{{- end }}

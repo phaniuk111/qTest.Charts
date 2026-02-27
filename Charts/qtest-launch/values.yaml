@@ -26,6 +26,8 @@ serviceAccount:
   annotations: {}
   # A service account will be created for you if set to true. Set to false if you want to use your own.
   name: "qtest-launch-sa"
+  # Set true when using GKE Workload Identity with Cloud SQL Proxy sidecar
+  automountServiceAccountToken: false
 deployment:
   annotations: {}
   singlePodPerNode: false
@@ -143,6 +145,10 @@ autoscaling:
   targetMemoryUtilizationPercentage: 85
 podDisruptionBudget:
   enabled: true
+securityContext:
+  runAsUser: 1000
+  runAsNonRoot: true
+  fsGroup: 1000
 resources:
   requests:
     cpu: 1

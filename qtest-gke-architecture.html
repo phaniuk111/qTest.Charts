@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>qTest on GKE + ASM — Architecture Diagram (Internal)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: #0f1729; color: #e2e8f0; min-height: 100vh; padding: 32px; }
+  h1 { text-align: center; font-size: 22px; font-weight: 600; color: #f8fafc; margin-bottom: 6px; letter-spacing: -0.3px; }
+  .subtitle { text-align: center; font-size: 13px; color: #64748b; margin-bottom: 28px; }
+
+  .diagram { max-width: 1200px; margin: 0 auto; position: relative; }
+
+  /* ── Layer boxes ─────────────────────────────────── */
+  .layer {
+    border: 1.5px solid;
+    border-radius: 12px;
+    padding: 18px 18px 14px;
+    margin-bottom: 16px;
+    position: relative;
+  }
+  .layer-label {
+    position: absolute; top: -11px; left: 18px;
+    background: #0f1729; padding: 0 8px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase;
+  }
+
+  .layer-gcp   { border-color: #2563eb33; }
+  .layer-gcp .layer-label { color: #60a5fa; }
+
+  .layer-vpc   { border-color: #16a34a33; margin: 12px 8px; }
+  .layer-vpc .layer-label { color: #4ade80; }
+
+  .layer-ns    { border-color: #7c3aed33; margin: 12px 8px; }
+  .layer-ns .layer-label { color: #a78bfa; }
+
+  .layer-mesh  { border-color: #06b6d433; margin: 12px 8px; }
+  .layer-mesh .layer-label { color: #22d3ee; }
+
+  /* ── Row layouts ─────────────────────────────────── */
+  .row { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; margin: 10px 0; }
+
+  /* ── Cards ───────────────────────────────────────── */
+  .card {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    padding: 14px 16px;
+    min-width: 200px;
+    flex: 1;
+    max-width: 360px;
+    position: relative;
+  }
+  .card-title {
+    font-size: 13px; font-weight: 700; margin-bottom: 8px;
+    display: flex; align-items: center; gap: 7px;
+  }
+  .card-body { font-size: 11.5px; color: #94a3b8; line-height: 1.55; }
+  .card-body code { background: #0f172a; padding: 1px 5px; border-radius: 4px; font-size: 10.5px; color: #cbd5e1; }
+
+  /* card color accents */
+  .card-dns    { border-left: 3px solid #a78bfa; }
+  .card-dns .dot { background: #a78bfa; }
+  .card-gw     { border-left: 3px solid #f59e0b; }
+  .card-gw .dot { background: #f59e0b; }
+  .card-vs     { border-left: 3px solid #22d3ee; }
+  .card-vs .dot { background: #22d3ee; }
+  .card-pa     { border-left: 3px solid #f472b6; }
+  .card-pa .dot { background: #f472b6; }
+  .card-deploy { border-left: 3px solid #34d399; }
+  .card-deploy .dot { background: #34d399; }
+  .card-es     { border-left: 3px solid #fbbf24; }
+  .card-es .dot { background: #fbbf24; }
+  .card-sa     { border-left: 3px solid #818cf8; }
+  .card-sa .dot { background: #818cf8; }
+  .card-sql    { border-left: 3px solid #fb923c; }
+  .card-sql .dot { background: #fb923c; }
+  .card-int    { border-left: 3px solid #4ade80; }
+  .card-int .dot { background: #4ade80; }
+
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+
+  /* sidecar sub-block */
+  .sidecar {
+    margin-top: 8px; padding: 8px 10px;
+    background: #0f172a; border-radius: 6px; border: 1px dashed #475569;
+    font-size: 10.5px; color: #94a3b8;
+  }
+  .sidecar strong { color: #cbd5e1; font-weight: 600; }
+
+  /* ── Arrows / connectors ─────────────────────────── */
+  .arrow-row {
+    display: flex; justify-content: center; padding: 4px 0;
+  }
+  .arrow-row svg { display: block; }
+
+  /* ── Legend ───────────────────────────────────────── */
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 16px; justify-content: center;
+    margin-top: 20px; padding: 12px 0; border-top: 1px solid #1e293b;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #94a3b8; }
+  .legend-line { width: 20px; height: 2px; border-radius: 1px; }
+
+  /* ── Flow labels ─────────────────────────────────── */
+  .flow-label {
+    text-align: center; font-size: 10.5px; color: #475569; padding: 2px 0;
+    letter-spacing: 0.5px;
+  }
+
+  /* Pod container */
+  .pod-group { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  .pod {
+    background: #1e293b; border: 1px solid #334155; border-radius: 10px;
+    padding: 12px 14px; flex: 1; min-width: 220px; max-width: 350px;
+  }
+  .pod-header {
+    font-size: 12px; font-weight: 700; margin-bottom: 6px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .container-box {
+    padding: 6px 10px; border-radius: 5px; margin: 4px 0;
+    font-size: 10.5px; line-height: 1.5;
+  }
+  .container-app { background: #064e3b; border: 1px solid #059669; color: #6ee7b7; }
+  .container-proxy { background: #451a03; border: 1px solid #d97706; color: #fcd34d; }
+  .container-envoy { background: #0c4a6e; border: 1px solid #0ea5e9; color: #7dd3fc; }
+
+  /* internal badge */
+  .badge-internal {
+    display: inline-block; background: #166534; color: #86efac; font-size: 9.5px;
+    padding: 2px 7px; border-radius: 4px; font-weight: 600; letter-spacing: 0.3px;
+    margin-left: 6px; vertical-align: middle;
+  }
+
+  /* ── Responsive ──────────────────────────────────── */
+  @media (max-width: 768px) {
+    .card, .pod { min-width: 100%; max-width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<h1>qTest on GKE + Anthos Service Mesh <span class="badge-internal">INTERNAL ONLY</span></h1>
+<p class="subtitle">Helm chart architecture — namespace <code style="background:#1e293b;padding:2px 6px;border-radius:4px;font-size:12px;">qtest</code> — no external load balancer</p>
+
+<div class="diagram">
+
+<!-- ══════════════════════════════════════════════════════════════════
+     INTERNAL CLIENTS
+     ══════════════════════════════════════════════════════════════════ -->
+<div class="row">
+  <div class="card card-int" style="max-width:600px;text-align:center;">
+    <div class="card-title"><span class="dot"></span>Internal Clients (Corporate Network / VPN / Peered VPCs)</div>
+    <div class="card-body">
+      Internal users & services → <code>qtest.internal.company.com</code> <span class="badge-internal">Internal DNS</span><br>
+      Resolved via Cloud DNS private zone or on-prem DNS forwarding → Istio Ingress Gateway internal IP
+    </div>
+  </div>
+</div>
+
+<div class="arrow-row">
+  <svg width="24" height="32"><path d="M12 0 L12 24 M6 18 L12 26 L18 18" stroke="#4ade80" stroke-width="1.5" fill="none"/></svg>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     GCP PROJECT
+     ══════════════════════════════════════════════════════════════════ -->
+<div class="layer layer-gcp">
+  <span class="layer-label">GCP Project</span>
+
+  <!-- ── VPC Network ──────────────────────────────── -->
+  <div class="layer layer-vpc">
+    <span class="layer-label">VPC Network (Private) — No Public Endpoints</span>
+
+    <!-- ── Internal DNS → ILB ─────────────────────── -->
+    <div class="row">
+      <div class="card card-dns" style="max-width:340px;">
+        <div class="card-title"><span class="dot"></span>Cloud DNS (Private Zone)</div>
+        <div class="card-body">
+          <code>qtest.internal.company.com</code><br>
+          A record → Internal Load Balancer IP<br>
+          <span style="color:#64748b;">Resolvable only from VPC / peered networks</span>
+        </div>
+      </div>
+      <div class="card card-gw" style="max-width:400px;">
+        <div class="card-title"><span class="dot"></span>Istio Ingress Gateway <span class="badge-internal">ILB</span></div>
+        <div class="card-body">
+          <code>qtest/qtest-gateway</code><br>
+          GKE internal Service (no external LB)<br>
+          Receives traffic from internal DNS A-record<br>
+          Forwards to VirtualService based on host (authority) routing
+        </div>
+      </div>
+    </div>
+
+    <!-- ── GKE Cluster ──────────────────────────────── -->
+    <div class="layer layer-ns">
+      <span class="layer-label">GKE Cluster — Namespace: qtest &nbsp;(istio-injection=enabled)</span>
+
+      <!-- ── ASM Mesh Layer ─────────────────────────── -->
+      <div class="layer layer-mesh">
+        <span class="layer-label">Anthos Service Mesh (mTLS STRICT)</span>
+
+        <!-- VirtualService + PeerAuth -->
+        <div class="row">
+          <div class="card card-vs">
+            <div class="card-title"><span class="dot"></span>VirtualService</div>
+            <div class="card-body">
+              <code>launch.*</code> → qtest-launch-service:3080<br>
+              <code>parameters.*</code> → qtest-parameters-service:5080<br>
+              <code>scenario.*</code> → qtest-scenario-service:6080<br>
+              <code>sessions.*</code> → qtest-session-service:8080<br>
+              <code>insights.*</code> → insights-service:8080<br>
+              <code>*</code> → mgr-service:8080 <span style="color:#64748b">(catch-all)</span><br>
+              <span style="color:#64748b;">Host (authority) based routing</span>
+            </div>
+          </div>
+          <div class="card card-pa">
+            <div class="card-title"><span class="dot"></span>PeerAuthentication</div>
+            <div class="card-body">
+              <code>mtls.mode: STRICT</code><br>
+              All pod↔pod traffic encrypted via Envoy mTLS<br>
+              <span style="color:#64748b;">Namespace-wide policy</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="flow-label">▼ &nbsp; mTLS-encrypted ClusterIP traffic (internal only) &nbsp; ▼</div>
+
+        <!-- ── Pod Deployments ──────────────────────── -->
+        <div class="pod-group">
+
+          <!-- qtest-mgr pod -->
+          <div class="pod" style="border-left: 3px solid #34d399;">
+            <div class="pod-header"><span class="dot" style="background:#34d399"></span>qtest-mgr &nbsp;<span style="font-size:10px;color:#64748b;font-weight:400">Deployment (HPA 1→3)</span></div>
+            <div class="container-app container-box">
+              <strong>App:</strong> qtest-mgr<br>
+              Port 8080 (ClusterIP) · Java · Postgres via 127.0.0.1:5432
+            </div>
+            <div class="container-proxy container-box">
+              <strong>Sidecar:</strong> cloud-sql-proxy:2.14.3<br>
+              <code>--auto-iam-authn --port=5432</code><br>
+              runAsUser: 65532 · WI: <code>automountsatoken: true</code>
+            </div>
+            <div class="container-envoy container-box">
+              <strong>Sidecar:</strong> Envoy (ASM injected)<br>
+              Intercepts all TCP · mTLS termination
+            </div>
+            <div class="sidecar">
+              <strong>SA:</strong> qtest-mgr-sa → <code>iam.gke.io/gcp-service-account</code>
+            </div>
+          </div>
+
+          <!-- qtest-launch pod -->
+          <div class="pod" style="border-left: 3px solid #34d399;">
+            <div class="pod-header"><span class="dot" style="background:#34d399"></span>qtest-launch &nbsp;<span style="font-size:10px;color:#64748b;font-weight:400">Deployment (HPA 2→4)</span></div>
+            <div class="container-app container-box">
+              <strong>App:</strong> qtest-launch<br>
+              Port 3080 (ClusterIP) · Node.js · Postgres via 127.0.0.1:5432
+            </div>
+            <div class="container-proxy container-box">
+              <strong>Sidecar:</strong> cloud-sql-proxy:2.14.3<br>
+              <code>--auto-iam-authn --port=5432</code><br>
+              runAsUser: 65532 · WI: <code>automountServiceAccountToken: true</code>
+            </div>
+            <div class="container-envoy container-box">
+              <strong>Sidecar:</strong> Envoy (ASM injected)
+            </div>
+            <div class="sidecar">
+              <strong>SA:</strong> qtest-launch-sa → <code>iam.gke.io/gcp-service-account</code><br>
+              <strong>Security:</strong> runAsNonRoot · runAsUser: 1000 · fsGroup: 1000
+            </div>
+          </div>
+
+          <!-- qtest-parameters pod -->
+          <div class="pod" style="border-left: 3px solid #f59e0b;">
+            <div class="pod-header"><span class="dot" style="background:#f59e0b"></span>qtest-parameters &nbsp;<span style="font-size:10px;color:#64748b;font-weight:400">Deployment (HPA 2→4)</span></div>
+            <div class="container-app container-box">
+              <strong>App:</strong> qtest-parameters<br>
+              Port 5080 (ClusterIP) · Node.js · Postgres via 127.0.0.1:5432
+            </div>
+            <div class="container-proxy container-box">
+              <strong>Sidecar:</strong> cloud-sql-proxy:2.14.3<br>
+              <code>--auto-iam-authn --port=5432</code><br>
+              runAsUser: 65532 · WI: <code>automountsatoken: true</code>
+            </div>
+            <div class="container-envoy container-box">
+              <strong>Sidecar:</strong> Envoy (ASM injected)
+            </div>
+            <div class="sidecar">
+              <strong>SA:</strong> qtest-parameters-sa → <code>iam.gke.io/gcp-service-account</code>
+            </div>
+          </div>
+
+          <!-- qtest-scenario pod -->
+          <div class="pod" style="border-left: 3px solid #a78bfa;">
+            <div class="pod-header"><span class="dot" style="background:#a78bfa"></span>qtest-scenario &nbsp;<span style="font-size:10px;color:#64748b;font-weight:400">Deployment (HPA 2→4)</span></div>
+            <div class="container-app container-box">
+              <strong>App:</strong> qtest-scenario<br>
+              Port 6080 (ClusterIP) · Node.js · Postgres via 127.0.0.1:5432
+            </div>
+            <div class="container-proxy container-box">
+              <strong>Sidecar:</strong> cloud-sql-proxy:2.14.3<br>
+              <code>--auto-iam-authn --port=5432</code><br>
+              runAsUser: 65532 · WI: <code>automountServiceAccountToken: true</code>
+            </div>
+            <div class="container-envoy container-box">
+              <strong>Sidecar:</strong> Envoy (ASM injected)
+            </div>
+            <div class="sidecar">
+              <strong>SA:</strong> qtest-scenario-sa → <code>iam.gke.io/gcp-service-account</code>
+            </div>
+          </div>
+
+          <!-- qtest-session pod -->
+          <div class="pod" style="border-left: 3px solid #ec4899;">
+            <div class="pod-header"><span class="dot" style="background:#ec4899"></span>qtest-session &nbsp;<span style="font-size:10px;color:#64748b;font-weight:400">Deployment (HPA 2→4)</span></div>
+            <div class="container-app container-box">
+              <strong>App:</strong> qtest-session<br>
+              Port 8080 (ClusterIP) · Node.js · Postgres via 127.0.0.1:5432
+            </div>
+            <div class="container-proxy container-box">
+              <strong>Sidecar:</strong> cloud-sql-proxy:2.14.3<br>
+              <code>--auto-iam-authn --port=5432</code><br>
+              runAsUser: 65532 · WI: <code>automountsatoken: true</code>
+            </div>
+            <div class="container-envoy container-box">
+              <strong>Sidecar:</strong> Envoy (ASM injected)
+            </div>
+            <div class="sidecar">
+              <strong>SA:</strong> qtest-session-sa → <code>iam.gke.io/gcp-service-account</code>
+            </div>
+          </div>
+
+          <!-- qtest-insights pod -->
+          <div class="pod" style="border-left: 3px solid #34d399;">
+            <div class="pod-header"><span class="dot" style="background:#34d399"></span>qtest-insights &nbsp;<span style="font-size:10px;color:#64748b;font-weight:400">Deployment (HPA 1→1)</span></div>
+            <div class="container-app container-box">
+              <strong>App:</strong> qtest-insights<br>
+              Port 8080 (ClusterIP) · Java/Tomcat · Postgres via 127.0.0.1:5432
+            </div>
+            <div class="container-proxy container-box">
+              <strong>Sidecar:</strong> cloud-sql-proxy:2.14.3<br>
+              <code>--auto-iam-authn --port=5432</code><br>
+              runAsUser: 65532 · WI: <code>automountServiceAccountToken: true</code>
+            </div>
+            <div class="container-envoy container-box">
+              <strong>Sidecar:</strong> Envoy (ASM injected)
+            </div>
+            <div class="sidecar">
+              <strong>SA:</strong> qtest-insights-sa → <code>iam.gke.io/gcp-service-account</code><br>
+              <strong>Security:</strong> runAsNonRoot · runAsUser: 8877 · fsGroup: 8877
+            </div>
+          </div>
+
+        </div>
+
+        <div style="height:10px"></div>
+
+        <!-- Elasticsearch -->
+        <div class="row">
+          <div class="card card-es" style="max-width: 360px;">
+            <div class="card-title"><span class="dot"></span>Elasticsearch (Standalone)</div>
+            <div class="card-body">
+              <code>qtest-elasticsearch:9200</code> (HTTP)<br>
+              master: 1 · data: 2 · coordinating: 0<br>
+              Namespace: qtest · ASM sidecar injected
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /mesh -->
+
+      <!-- ── Supporting Resources ── -->
+      <div class="row" style="margin-top:6px;">
+        <div class="card card-sa" style="max-width:260px;">
+          <div class="card-title"><span class="dot"></span>ServiceAccounts</div>
+          <div class="card-body">
+            qtest-mgr-sa<br>
+            qtest-launch-sa<br>
+            qtest-parameters-sa<br>
+            qtest-scenario-sa<br>
+            qtest-session-sa<br>
+            qtest-insights-sa<br>
+            <span style="color:#64748b;">automountSAToken: false (SA level)<br>true (pod-spec, GKE override)</span>
+          </div>
+        </div>
+        <div class="card" style="border-left:3px solid #a78bfa; max-width:260px;">
+          <div class="card-title"><span class="dot" style="background:#a78bfa"></span>HPA + PDB</div>
+          <div class="card-body">
+            HPA: autoscaling/v2 · CPU/Memory 70-85%<br>
+            PDB: mgr ✓ · launch ✓ · params ✓ · scenario ✓ · session ✓ · insights ✓<br>
+            <span style="color:#64748b;">insights: maxUnavailable:1 (drain-safe)</span>
+          </div>
+        </div>
+        <div class="card" style="border-left:3px solid #f43f5e; max-width:260px;">
+          <div class="card-title"><span class="dot" style="background:#f43f5e"></span>Secrets</div>
+          <div class="card-body">
+            <code>qtest-manager-secret</code><br>
+            <code>qtest-scenario-secret</code><br>
+            <code>qtest-aes-secret-keys</code><br>
+            <span style="color:#64748b;">DB passwords, AES keys, tokens, Jira creds</span>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /namespace -->
+
+    <div class="flow-label">▼ &nbsp; Private IP (VPC-internal, no public route) &nbsp; ▼</div>
+
+    <!-- ── GCP Managed Services ─────────────────────── -->
+    <div class="row">
+      <div class="card card-sql" style="max-width:360px;">
+        <div class="card-title"><span class="dot"></span>Cloud SQL (PostgreSQL) <span class="badge-internal">Private IP</span></div>
+        <div class="card-body">
+          Private Service Networking (RFC 1918)<br>
+          Accessed via Cloud SQL Auth Proxy v2 sidecar<br>
+          <code>PROJECT_ID:REGION:INSTANCE_NAME</code><br>
+          Auth: Workload Identity (auto-iam-authn)<br>
+          <span style="color:#64748b;">No public IP assigned</span>
+        </div>
+      </div>
+      <div class="card card-sa" style="max-width:360px;">
+        <div class="card-title"><span class="dot"></span>IAM — Workload Identity</div>
+        <div class="card-body">
+          KSA → GSA binding via <code>iam.gke.io/gcp-service-account</code><br>
+          GSA needs: <code>roles/cloudsql.client</code><br>
+          Auth: password-based (superuser) via secrets<br>
+          <span style="color:#64748b;">6 bindings: mgr-sa, launch-sa, parameters-sa, scenario-sa, session-sa, insights-sa</span>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /vpc -->
+
+</div><!-- /gcp -->
+
+</div><!-- /diagram -->
+
+<!-- ── Traffic Flow Summary ─────────────────────────────── -->
+<div style="max-width:1200px;margin:20px auto 0;padding:14px 18px;background:#1e293b;border:1px solid #334155;border-radius:10px;">
+  <div style="font-size:12px;font-weight:700;margin-bottom:8px;color:#f8fafc;">Traffic Flow (fully internal)</div>
+  <div style="font-size:11px;color:#94a3b8;line-height:1.7;">
+    <span style="color:#4ade80;">①</span> Internal client resolves <code style="background:#0f172a;padding:1px 5px;border-radius:4px;font-size:10.5px;color:#cbd5e1;">qtest.internal.company.com</code> via Cloud DNS private zone → internal LB IP<br>
+    <span style="color:#f59e0b;">②</span> Istio Ingress Gateway (ILB, no external IP) accepts connection on the VPC-internal address<br>
+    <span style="color:#22d3ee;">③</span> VirtualService routes by host (authority) to the correct ClusterIP service<br>
+    <span style="color:#34d399;">④</span> Envoy sidecars enforce mTLS between all pods (PeerAuthentication STRICT)<br>
+    <span style="color:#fb923c;">⑤</span> Cloud SQL Proxy sidecars connect to Cloud SQL via Private Service Networking (RFC 1918), authenticated by Workload Identity — no passwords in transit
+  </div>
+</div>
+
+<!-- ── Legend ───────────────────────────────────────────── -->
+<div class="legend">
+  <div class="legend-item"><div class="legend-line" style="background:#4ade80"></div> Internal Network</div>
+  <div class="legend-item"><div class="legend-line" style="background:#34d399"></div> Application Pod</div>
+  <div class="legend-item"><div class="legend-line" style="background:#d97706"></div> Cloud SQL Proxy</div>
+  <div class="legend-item"><div class="legend-line" style="background:#0ea5e9"></div> Envoy (ASM)</div>
+  <div class="legend-item"><div class="legend-line" style="background:#f59e0b"></div> Istio Gateway (ILB)</div>
+  <div class="legend-item"><div class="legend-line" style="background:#22d3ee"></div> VirtualService</div>
+  <div class="legend-item"><div class="legend-line" style="background:#f472b6"></div> PeerAuth (mTLS)</div>
+  <div class="legend-item"><div class="legend-line" style="background:#818cf8"></div> WI / ServiceAccount</div>
+  <div class="legend-item"><div class="legend-line" style="background:#fb923c"></div> Cloud SQL (Private IP)</div>
+</div>
+
+</body>
+</html>

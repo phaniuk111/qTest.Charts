@@ -42,7 +42,7 @@ data:
   elasticsearch.init: "{{ .Values.qTestManager.elasticSearch.init }}"
   elasticsearch.disable: "{{ .Values.qTestManager.elasticSearch.disable }}"
   elasticsearch.scheme: "{{ .Values.qTestManager.elasticSearch.scheme }}"
-  elasticsearch.host: "{{ .Values.qTestManager.elasticSearch.host }}"
+  elasticsearch.host: "{{ tpl (.Values.qTestManager.elasticSearch.host | toString) . }}"
   elasticsearch.port: "{{ .Values.qTestManager.elasticSearch.port }}"
   elasticsearch.maximum_objects_per_index_request: "{{ .Values.qTestManager.elasticSearch.maximumObjectsPerIndexRequest }}"
   attachment.folder.path: "{{ .Values.qTestManager.attachmentFolderPath }}"

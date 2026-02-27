@@ -1,0 +1,102 @@
+## ── ClusterIP service for HTTP API access (9200) ───────────────────
+## This is the service qtest-mgr connects to: qtest-elasticsearch:9200
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.service.name }}
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "qtest-elasticsearch.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "qtest-elasticsearch.selectorLabels" . | nindent 4 }}
+    # Route HTTP traffic to data nodes (or coordinating if deployed)
+    {{- if gt (int .Values.coordinating.replicas) 0 }}
+    elasticsearch.role: coordinating
+    {{- else }}
+    elasticsearch.role: data
+    {{- end }}
+  ports:
+    - name: http
+      port: {{ .Values.service.httpPort }}
+      targetPort: http
+      protocol: TCP
+    - name: transport
+      port: {{ .Values.service.transportPort }}
+      targetPort: transport
+      protocol: TCP
+---
+## ── Headless service for master discovery ───────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.service.name }}-master-headless
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "qtest-elasticsearch.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    {{- include "qtest-elasticsearch.selectorLabels" . | nindent 4 }}
+    elasticsearch.role: master
+  ports:
+    - name: http
+      port: {{ .Values.service.httpPort }}
+      targetPort: http
+      protocol: TCP
+    - name: transport
+      port: {{ .Values.service.transportPort }}
+      targetPort: transport
+      protocol: TCP
+---
+## ── Headless service for data node stable DNS ───────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.service.name }}-data-headless
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "qtest-elasticsearch.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    {{- include "qtest-elasticsearch.selectorLabels" . | nindent 4 }}
+    elasticsearch.role: data
+  ports:
+    - name: http
+      port: {{ .Values.service.httpPort }}
+      targetPort: http
+      protocol: TCP
+    - name: transport
+      port: {{ .Values.service.transportPort }}
+      targetPort: transport
+      protocol: TCP
+{{- if gt (int .Values.coordinating.replicas) 0 }}
+---
+## ── Headless service for coordinating node stable DNS ───────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.service.name }}-coordinating-headless
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "qtest-elasticsearch.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    {{- include "qtest-elasticsearch.selectorLabels" . | nindent 4 }}
+    elasticsearch.role: coordinating
+  ports:
+    - name: http
+      port: {{ .Values.service.httpPort }}
+      targetPort: http
+      protocol: TCP
+    - name: transport
+      port: {{ .Values.service.transportPort }}
+      targetPort: transport
+      protocol: TCP
+{{- end }}

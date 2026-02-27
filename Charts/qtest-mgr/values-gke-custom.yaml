@@ -1,0 +1,356 @@
+# GKE Specific Values for qTest Manager
+# ──────────────────────────────────────
+# Usage:
+#   helm dependency update .
+#   helm upgrade --install qtest . -f values-gke-custom.yaml -n qtest
+#
+# Prerequisites:
+#   - GKE cluster with Workload Identity enabled
+#   - Cloud SQL PostgreSQL instance with Private IP enabled
+#   - VPC peering between GKE VPC and Cloud SQL (automatic when Private IP is enabled)
+#   - Istio/ASM with Gateway resource configured in the cluster
+#   - Elasticsearch deployed first (via ECK operator or Charts/qtest-elasticsearch)
+#   - External Secrets Operator installed in the cluster
+#
+# Database connectivity:
+#   Pods connect directly to Cloud SQL via its Private IP address.
+#   No Cloud SQL Auth Proxy sidecar is needed — authentication is
+#   username/password via the qtest-manager-secret (managed by ESO).
+#
+# Required PostgreSQL databases (created by the qtest_user superuser):
+#   qtest, sessions, parameters, pulse, scenario
+#
+# ⚠️ CRITICAL STORAGE REQUIREMENT ⚠️
+# qTest Manager uses `ReadWriteMany` PVCs to share attachments across scaled pods.
+# GKE's default Persistent Disks (GCE PD) DO NOT support `ReadWriteMany`.
+# You MUST either:
+#   A) Provision a Filestore (NFS) instance and provide its StorageClass in `persistence.storageClass`.
+#   B) Use `blobStorage.type: amazon_s3` with GCS interoperability keys.
+#
+# Secrets are managed by External Secrets Operator (ESO) pulling from
+# Google Secret Manager. See externalSecrets section below.
+# The ESO controller's KSA must be bound to a GSA with
+# roles/secretmanager.secretAccessor on all referenced secrets.
+#
+# REQUIRED - DNS:
+#   Map these domains to your Istio Ingress Gateway's ILB IP:
+#   - qtest.gke.example.com
+#   - launch.gke.example.com
+#   - insights.gke.example.com
+#   - parameters.gke.example.com
+#   - scenario.gke.example.com
+#   - sessions.gke.example.com
+#   - pulse.gke.example.com
+
+# ── Elasticsearch (standalone chart — deploy Charts/qtest-elasticsearch FIRST) ─
+# ES is no longer a subchart of qtest-mgr. Deploy it separately:
+#   cd Charts/qtest-elasticsearch
+#   helm upgrade --install qtest-elasticsearch . -f values.yaml -f values-gke.yaml -n qtest
+#
+# The ES cluster will be reachable at: qtest-elasticsearch.qtest.svc.cluster.local:9200
+
+# ── ServiceAccount (Workload Identity) ───────────────────────────────
+# WI is used by ESO to pull secrets from Google Secret Manager.
+# No longer needed for Cloud SQL Auth Proxy.
+serviceAccount:
+  create: true
+  automountsatoken: true
+  annotations:
+    iam.gke.io/gcp-service-account: "SA_NAME@PROJECT_ID.iam.gserviceaccount.com"  # TODO: replace
+
+# ── External Secrets Operator (Google Secret Manager) ──────────────
+# Each remoteRef.key is the NAME of a secret in Google Secret Manager.
+# Create these secrets in GCP first, each containing a single plaintext value.
+# For unused integrations (Jira, SMTP, LaunchDarkly), store an empty string.
+externalSecrets:
+  enabled: true
+  gcpProjectID: "PROJECT_ID"                    # TODO: replace
+  clusterLocation: "REGION"                     # TODO: replace (e.g. us-central1)
+  clusterName: "CLUSTER_NAME"                   # TODO: replace
+  serviceAccountRef: "qtest-sa"                 # KSA name for ESO (must have WI binding)
+  refreshInterval: "1h"                         # how often ESO syncs from GSM
+
+  # ── Google Secret Manager secret names ────────────────────────────
+  # One GSM secret per key. Each holds a single plaintext value.
+  remoteRefs:
+    # Database (REQUIRED)
+    dbPassword: "qtest-db-password"                       # Cloud SQL superuser password
+    dbReadonlyPassword: "qtest-db-readonly-password"      # can be same as dbPassword
+
+    # OAuth app secrets (REQUIRED — generate with: openssl rand -base64 32)
+    oauthSpSecret: "qtest-oauth-sp-secret"
+    oauthSessionsSecret: "qtest-oauth-sessions-secret"
+    oauthExplorerSecret: "qtest-oauth-explorer-secret"
+    oauthQmapSecret: "qtest-oauth-qmap-secret"
+    oauthJenkinsSecret: "qtest-oauth-jenkins-secret"
+    oauthBambooSecret: "qtest-oauth-bamboo-secret"
+    oauthPulseSecret: "qtest-oauth-pulse-secret"
+    oauthToscaSecret: "qtest-oauth-tosca-secret"
+    oauthWebExplorerSecret: "qtest-oauth-web-explorer-secret"
+
+    # Session & CSRF (REQUIRED — generate with: openssl rand -base64 32)
+    sessionsSecretKey: "qtest-sessions-secret-key"
+    csrfKey: "qtest-csrf-key"
+    csrfSecretKey: "qtest-csrf-secret-key"
+
+    # Pulse (REQUIRED — generate with: openssl rand -base64 32)
+    pulseExecutorApiKey: "qtest-pulse-executor-api-key"
+
+    # Encryption (REQUIRED — generate with: openssl rand -base64 32)
+    aesSecretKeys: "qtest-aes-secret-keys"
+
+    # Scenario (REQUIRED — generate with: openssl rand -base64 32)
+    scenarioRefreshTokenSecret: "qtest-scenario-refresh-token-secret"
+    jiraCypherKey: "qtest-jira-cypher-key"
+
+    # Integration keys (OPTIONAL — store empty string "" if unused)
+    mailPassword: "qtest-mail-password"                   # empty — not using SMTP
+    jiraOauth2Password: "qtest-jira-oauth2-password"      # empty — not using Jira
+    jiraOauth2Salt: "qtest-jira-oauth2-salt"              # empty — not using Jira
+    launchdarklySdkKey: "qtest-launchdarkly-sdk-key"      # empty — not using LD
+
+# ── Scheduling / Affinity ──────────────────────────────────────────
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - qtest-elasticsearch
+          topologyKey: kubernetes.io/hostname
+
+# ── qTest Manager ────────────────────────────────────────────────────
+qTestManager:
+  elasticSearch:
+    disable: false
+    init: true                                          # create ES indices on first boot
+    host: "qtest-elasticsearch"
+    scheme: http
+    port: 9200
+
+  # ── Attachment Storage ──────────────────────────────────────────
+  # The chart's ConfigMap does NOT support a custom S3 endpoint,
+  # so GCS HMAC interop is NOT viable. Use disk_storage with
+  # a GCS FUSE CSI PVC (see persistence.existingClaim below).
+  blobStorage:
+    type: "disk_storage"
+
+  # Internal service URLs for subcharts
+  tdmSettingUrl: "http://qtest-parameters-service:5080"
+  preSessionUrl: "https://sessions.gke.example.com"    # TODO: replace
+  pulseUrlBase: "https://pulse.gke.example.com"        # TODO: replace
+  launchUrlBase: "https://launch.gke.example.com"      # TODO: replace
+  uiUrl: "https://qtest.gke.example.com"               # TODO: replace
+  preUrl: "https://qtest.gke.example.com"              # TODO: replace
+  preUrlHttps: "https://qtest.gke.example.com"         # TODO: replace
+
+  # Database – connects directly to Cloud SQL via Private IP
+  client:
+    jdbc:
+      postgresUrl: "jdbc:postgresql://CLOUD_SQL_PRIVATE_IP:5432/qtest"           # TODO: replace
+      postgresUserName: "qtest_user"              # TODO: replace
+      sessionsSchema: "public"
+      postgresPassword: ""                         # injected from qtest-manager-secret
+      postgresReadOnlyUrl: "jdbc:postgresql://CLOUD_SQL_PRIVATE_IP:5432/qtest"   # TODO: replace
+      postgresReadOnlyUserName: "qtest_user"
+      postgresReadOnlyPassword: ""
+
+# ── Persistence (GCS FUSE CSI) ──────────────────────────────────────
+# qTest Manager requires ReadWriteMany. GKE default PDs do NOT support RWX.
+# Use a GCS FUSE CSI PV/PVC to satisfy this requirement.
+# See: https://cloud.google.com/kubernetes-engine/docs/how-to/persistent-volumes/cloud-storage-fuse-csi-driver
+#
+# Before helm install, apply a PV + PVC pointing to your GCS bucket:
+#   kubectl apply -f qtest-gcs-pv.yaml -n qtest
+persistence:
+  enabled: true
+  existingClaim: "qtest-gcs-pvc"                       # TODO: replace with your GCS FUSE PVC name
+
+# ── Istio VirtualService ─────────────────────────────────────────────
+istio:
+  enabled: true
+  sessionAffinity: true                              # JSESSIONID sticky sessions for scaled pods
+  gateway: "qtest/qtest-gateway"                   # existing Gateway resource
+  hosts:
+    - "qtest.gke.example.com"                      # TODO: replace
+    - "launch.gke.example.com"                     # TODO: replace
+    - "insights.gke.example.com"                   # TODO: replace
+    - "parameters.gke.example.com"                 # TODO: replace
+    - "scenario.gke.example.com"                   # TODO: replace
+    - "sessions.gke.example.com"                   # TODO: replace
+    - "pulse.gke.example.com"                      # TODO: replace
+
+ingress:
+  enabled: false
+
+# ── Internal Service Configuration ──────────────────────────────────
+service:
+  type: ClusterIP
+
+# ── Liquibase Migration Job ──────────────────────────────────────────
+# Liquibase connects directly to Cloud SQL Private IP — no sidecar needed.
+liquibase:
+  enabled: true
+
+# ── qTest Launch ─────────────────────────────────────────────────────
+qtest-launch:
+  enabled: true
+  service:
+    type: ClusterIP
+  ingress:
+    enabled: false
+  serviceAccount:
+    create: true
+    automountServiceAccountToken: true
+    annotations:
+      iam.gke.io/gcp-service-account: "SA_NAME@PROJECT_ID.iam.gserviceaccount.com"  # TODO
+  qTestLaunch:
+    qTestLaunchDBHostName: "CLOUD_SQL_PRIVATE_IP"       # TODO: replace
+    qTestLaunchDBPort: "5432"
+    qTestLaunchDBUserName: "qtest_user"
+    qTestLaunchTCPWD: ""                           # inject via Secret
+    qTestLaunchRootURL: "https://launch.gke.example.com" # TODO
+    qTestLaunchQTestURL: "https://qtest.gke.example.com" # TODO
+
+# ── qTest Insights ───────────────────────────────────────────────────
+qtest-insights:
+  enabled: true
+  service:
+    type: ClusterIP
+  ingress:
+    enabled: false
+  serviceAccount:
+    create: true
+    automountServiceAccountToken: true
+    annotations:
+      iam.gke.io/gcp-service-account: "SA_NAME@PROJECT_ID.iam.gserviceaccount.com"  # TODO
+  qTestInsights:
+    qTestInsightsDBHost: "CLOUD_SQL_PRIVATE_IP"         # TODO: replace
+    qTestInsightsDBPort: 5432
+    qTestInsightsDBUser: "qtest_user"
+    qTestInsightsWriteQTestDBHost: "CLOUD_SQL_PRIVATE_IP"     # TODO: replace
+    qTestInsightsWriteQTestDBUser: "qtest_user"
+    qTestInsightsSessionDBHost: "CLOUD_SQL_PRIVATE_IP"        # TODO: replace
+    qTestInsightsSessionDBUser: "qtest_user"
+
+# ── qTest Parameters (TDM) ─────────────────────────────────────────
+qtest-parameters:
+  enabled: true
+  service:
+    type: ClusterIP
+  ingress:
+    enabled: false
+  serviceAccount:
+    create: true
+    automountsatoken: true
+    annotations:
+      iam.gke.io/gcp-service-account: "SA_NAME@PROJECT_ID.iam.gserviceaccount.com"  # TODO
+  qTestParameters:
+    qTestParametersDBName: "parameters"
+    qTestParametersDBUserName: "qtest_user"
+    qTestParametersDBHostName: "CLOUD_SQL_PRIVATE_IP"   # TODO: replace
+    qTestParametersDBPort: "5432"
+    qTestParametersQTestHost: "https://qtest.gke.example.com"  # TODO: replace
+    qTestParametersNodeTLSRejectUnAuthorized: "0"
+    qTestParametersNodeEnv: production
+    qTestParametersCorsOrigin: "gke.example.com"     # TODO: replace with your domain
+    qTestParametersDeploymentEnv: "onpremise"
+    qTestParametersSSLRequired: false
+    qTestParametersDBSSLEnable: false
+
+# ── qTest Scenario ───────────────────────────────────────────────────
+qtest-scenario:
+  enabled: true
+  service:
+    type: ClusterIP
+  ingress:
+    enabled: false
+  serviceAccount:
+    create: true
+    automountServiceAccountToken: true
+    annotations:
+      iam.gke.io/gcp-service-account: "SA_NAME@PROJECT_ID.iam.gserviceaccount.com"  # TODO
+  qTestScenario:
+    qTestScenarioDBHostName: "CLOUD_SQL_PRIVATE_IP"     # TODO: replace
+    qTestScenarioDBPort: "5432"
+    qTestScenarioDBUserName: "qtest_user"
+    qTestScenarioLocalBaseURL: "https://scenario.gke.example.com" # TODO
+    qTestScenarioQTestURL: "https://qtest.gke.example.com" # TODO
+
+# ── qTest Session ───────────────────────────────────────────────────
+qtest-session:
+  enabled: true
+  service:
+    type: ClusterIP
+  ingress:
+    enabled: false
+  serviceAccount:
+    create: true
+    # NOTE: this chart uses the non-standard key 'automountsatoken' (same as qtest-mgr).
+    automountsatoken: true
+    annotations:
+      iam.gke.io/gcp-service-account: "SA_NAME@PROJECT_ID.iam.gserviceaccount.com"  # TODO
+  qTestSession:
+    qTestSessionDBName: "sessions"
+    qTestSessionDBUserName: "qtest_user"
+    qTestSessionDBHostName: "CLOUD_SQL_PRIVATE_IP"      # TODO: replace
+    qTestSessionDBPort: "5432"
+    qTestManagerHost: "https://qtest.gke.example.com"  # TODO: replace
+    qTestSessionStorageType: "disk_storage"
+    qTestSessionStorageRootPath: "/data"
+    qTestStorageBucketName: ""
+    qTestSessionClamavURL: ""
+    qTestSessionSSLRequired: false
+    qTestSessionDBSSLEnable: false
+    qTestSessionDeploymentEnv: "op"
+
+# ── qTest Pulse ──────────────────────────────────────────────────────
+qtest-pulse:
+  enabled: true
+  service:
+    type: ClusterIP
+  ingress:
+    enabled: false
+  serviceAccount:
+    create: true
+    automountsatoken: true
+    annotations:
+      iam.gke.io/gcp-service-account: "SA_NAME@PROJECT_ID.iam.gserviceaccount.com"  # TODO: replace
+  autoscaling:
+    minReplicas: 2
+    maxReplicas: 4
+
+  qTestPulse:
+    qTestPulseDBName: pulse
+    qTestPulseDBUserName: "qtest_user"
+    qTestPulseDBHostName: "CLOUD_SQL_PRIVATE_IP"        # TODO: replace
+    qTestPulseDBPort: 5432
+    qTestPulseRootURL: "https://pulse.gke.example.com"
+    qTestPulseQTestURL: "https://qtest.gke.example.com"
+    qTestPulseScenarioURL: "https://scenario.gke.example.com"
+
+# ── qTest Insights ETL ───────────────────────────────────────────────
+qtest-insights-etl:
+  enabled: true
+  serviceAccount:
+    create: true
+    automountsatoken: true
+    annotations:
+      iam.gke.io/gcp-service-account: "SA_NAME@PROJECT_ID.iam.gserviceaccount.com"  # TODO: replace
+  autoscaling:
+    minReplicas: 1
+    maxReplicas: 2
+
+  qTestInsightsEtl:
+    qTestInsightsEtlDBHost: "CLOUD_SQL_PRIVATE_IP"         # TODO: replace
+    qTestInsightsEtlDBUser: "qtest_user"
+    qTestInsightsEtlWriteQTestDBHost: "CLOUD_SQL_PRIVATE_IP"   # TODO: replace
+    qTestInsightsEtlWriteQTestDBUser: "qtest_user"
+    qTestInsightsEtlSessionDBHost: "CLOUD_SQL_PRIVATE_IP"      # TODO: replace
+    qTestInsightsEtlSessionDBUser: "qtest_user"
+    writeSessionsDBHost: "CLOUD_SQL_PRIVATE_IP"                # TODO: replace
+    writeSessionsDBUser: "qtest_user"

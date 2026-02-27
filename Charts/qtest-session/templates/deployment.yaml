@@ -59,7 +59,7 @@ spec:
       {{- end }}
       {{- end }}
       serviceAccountName: {{ .Values.serviceAccount.name }}
-      automountServiceAccountToken: {{ .Values.serviceAccount.automountsatoken }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountsatoken | default false }}
       containers:
         - image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}

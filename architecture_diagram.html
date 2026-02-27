@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>qTest Architecture Diagram</title>
+    <style>
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            font-family: sans-serif;
+            background: #f9f9f9;
+            overflow: hidden;
+        }
+
+        h1 {
+            position: absolute;
+            top: 10px;
+            left: 20px;
+            z-index: 10;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .mermaid {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: grab;
+        }
+
+        .mermaid:active {
+            cursor: grabbing;
+        }
+
+        svg {
+            width: 100% !important;
+            height: 100% !important;
+            max-width: none !important;
+        }
+    </style>
+    <!-- Load d3 and d3-zoom for pan/zoom -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+
+        mermaid.initialize({ startOnLoad: true, theme: 'default' });
+
+        // Wait for mermaid to render, then add zoom and pan functionality
+        setTimeout(() => {
+            const svg = d3.select("pre.mermaid svg");
+            if (!svg.empty()) {
+                const inner = svg.select("g");
+                const zoom = d3.zoom().on("zoom", (e) => {
+                    inner.attr("transform", e.transform);
+                });
+                svg.call(zoom);
+
+                // Add a small initial zoom out so the diagram fits well
+                const width = svg.node().getBoundingClientRect().width;
+                const height = svg.node().getBoundingClientRect().height;
+                const transform = d3.zoomIdentity.translate(width / 2, height / 2).scale(0.8).translate(-width / 2, -height / 2);
+                svg.call(zoom.transform, transform);
+            }
+        }, 800);
+    </script>
+</head>
+
+<body>
+    <h1>qTest Architecture Diagram <br><small style="font-size: 14px; font-weight: normal; color: #666;">(Scroll to
+            Zoom, Click & Drag to Pan)</small></h1>
+    <pre class="mermaid">
+flowchart TD
+    %% External Endpoints
+    Client((Client/Browser))
+
+    %% Ingress Controller
+    subgraph Ingress [Ingress Controller / ALB]
+        MgrIngress(Manager Ingress)
+        SessionIngress(Session Ingress)
+        ParamIngress(Parameters Ingress)
+        OtherIngress(Other App Ingresses)
+    end
+
+    %% qTest Manager Components
+    subgraph qTest_Manager [qTest Manager Monolith]
+        MgrUI[Manager UI]
+        MgrAPI[Manager API]
+        MgrNotif[Notification]
+        MgrPoller[Poller]
+    end
+
+    %% Microservices with UIs
+    subgraph Microservices [qTest Microservices with Separate UIs]
+        subgraph Session [qTest Session]
+            SessionUI[Session UI]
+            SessionApp[Session API/Backend]
+        end
+        subgraph Parameters [qTest Parameters]
+            ParamUI[Parameters UI]
+            ParamApp[Parameters API/Backend]
+        end
+        subgraph Scenario [qTest Scenario]
+            ScenarioUI[Scenario UI]
+            ScenarioApp[Scenario API/Backend]
+        end
+        subgraph Pulse [qTest Pulse]
+            PulseUI[Pulse UI]
+            PulseApp[Pulse API/Backend]
+        end
+        subgraph Launch [qTest Launch]
+            LaunchUI[Launch UI]
+            LaunchApp[Launch API/Backend]
+        end
+        subgraph Insights [qTest Insights]
+            InsightsUI[Insights UI / Dashboards]
+            InsightsApp[Insights API/Backend]
+        end
+    end
+
+    %% Background / ETL
+    subgraph ETL [Data Processing]
+        iETL[qTest i-ETL]
+        InsightsETL[Insights ETL]
+    end
+
+    %% Data Stores
+    subgraph Data_Stores [Databases & Brokers]
+        PG_ReadWrite[(PostgreSQL Primary)]
+        PG_ReadOnly[(PostgreSQL Replica)]
+        Elastic[(Elasticsearch)]
+        Redis[(Redis)]
+        Kafka[[Kafka Broker]]
+        S3{{AWS S3 / Blob Storage}}
+    end
+
+    %% External Services
+    SMTP[SMTP Server]
+
+    %% Connections - Client to Ingress
+    Client -->|HTTPS| MgrIngress
+    Client -->|HTTPS| SessionIngress
+    Client -->|HTTPS| ParamIngress
+    Client -->|HTTPS| OtherIngress
+
+    %% Ingress to UIs
+    MgrIngress --> MgrUI
+    SessionIngress -.->|Browser loads UI| SessionUI
+    ParamIngress -.->|Browser loads UI| ParamUI
+    OtherIngress -.->|Browser loads UI| ScenarioUI
+    OtherIngress -.->|Browser loads UI| PulseUI
+    OtherIngress -.->|Browser loads UI| LaunchUI
+    OtherIngress -.->|Browser loads UI| InsightsUI
+
+    %% UI to Backend
+    SessionUI --> SessionApp
+    ParamUI --> ParamApp
+    ScenarioUI --> ScenarioApp
+    PulseUI --> PulseApp
+    LaunchUI --> LaunchApp
+    InsightsUI --> InsightsApp
+    MgrUI --> MgrAPI
+
+    %% Manager Internal Connections
+
+    %% Manager to Data Stores
+    qTest_Manager -->|Read/Write| PG_ReadWrite
+    qTest_Manager -->|Read| PG_ReadOnly
+    qTest_Manager -->|Search| Elastic
+    qTest_Manager -->|Cache| Redis
+    qTest_Manager -->|Events| Kafka
+    qTest_Manager -->|Attachments| S3
+    qTest_Manager -->|Emails| SMTP
+
+    %% Microservices to Manager & Stores
+    SessionApp -.->|API Calls| MgrAPI
+    ParamApp -.->|API Calls| MgrAPI
+    ScenarioApp -.->|API Calls| MgrAPI
+    PulseApp -.->|API Calls| MgrAPI
+    LaunchApp -.->|API Calls| MgrAPI
+    InsightsApp -.->|API Calls| MgrAPI
+
+    SessionApp -->|sessions DB| PG_ReadWrite
+    ParamApp -->|parameters DB| PG_ReadWrite
+    ScenarioApp -->|scenario DB| PG_ReadWrite
+    PulseApp -->|pulse DB| PG_ReadWrite
+    LaunchApp -->|launch DB| PG_ReadWrite
+    InsightsApp -->|insights DB| PG_ReadWrite
+
+    SessionApp -->|Storage| S3
+
+    %% ETL Connections
+    iETL -->|Extract| PG_ReadWrite
+    InsightsETL -->|Load/Transform| PG_ReadWrite
+    </pre>
+</body>
+
+</html>

@@ -1,0 +1,23 @@
+apiVersion: v2
+name: qtest-elasticsearch
+description: Standalone Elasticsearch for qTest platform (native K8s manifests, no Bitnami)
+type: application
+
+# Deploy this chart BEFORE qtest-mgr so the ES cluster is ready when Manager starts.
+#
+# Usage:
+#   helm upgrade --install qtest-elasticsearch . \
+#     -f values.yaml \
+#     -f values-gke.yaml \
+#     -n qtest --create-namespace
+
+# No external dependencies — all templates are native K8s manifests.
+
+version: 1.0.0
+appVersion: "8.15.0"
+kubeVersion: ">=1.24.0-0"
+
+maintainers:
+  - name: Tricentis support
+    url: https://support-hub.tricentis.com/open
+home: https://github.com/Tricentis-qTest/qtest-chart.git

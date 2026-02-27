@@ -5,6 +5,24 @@
 ## universal namespace for all qtest app services
 namespace:
   name: qtest
+
+# Elasticsearch is deployed as a separate chart (Charts/qtest-elasticsearch).
+# This flag is kept for backward compatibility but has no effect since the
+# dependency was removed from Chart.yaml.
+elasticsearch:
+  enabled: false
+
+## External Secrets Operator — disabled by default.
+## Enable in values-gke-custom.yaml to pull secrets from Google Secret Manager.
+externalSecrets:
+  enabled: false
+
+istio:
+  enabled: false
+  gateway: "qtest/qtest-gateway"
+  hosts:
+    - "qtest.example.com"
+
 ## Deploys Stakater Reloader https://github.com/stakater/Reloader
 reloader:
   enabled: false
@@ -640,21 +658,54 @@ topologySpreadConstraints: {}
 ### qtest-launch ###################################################
 qtest-launch:
   enabled: false
+  # Explicitly typed as scalars to match the subchart's own values schema
+  # and prevent Helm map-vs-scalar type-coalesce warnings at render time.
+  autoscaling:
+    minReplicas: 2
+    maxReplicas: 4
 ### qtest-insights ###################################################
 qtest-insights:
   enabled: false
+  # Explicitly typed as scalars to match the subchart's own values schema
+  # and prevent Helm map-vs-scalar type-coalesce warnings at render time.
+  autoscaling:
+    minReplicas: 1
+    maxReplicas: 1
 ### qtest-insights-etl ###################################################
 qtest-insights-etl:
   enabled: false
+  # Explicitly typed as scalars to prevent Helm map-vs-scalar coalesce warnings
+  autoscaling:
+    minReplicas: 1
+    maxReplicas: 2
 ### qtest-parameters ###################################################
 qtest-parameters:
   enabled: false
+  # Explicitly typed as scalars to match the subchart's own values schema
+  # and prevent Helm map-vs-scalar type-coalesce warnings at render time.
+  autoscaling:
+    minReplicas: 2
+    maxReplicas: 4
 ### qtest-pulse ###################################################
 qtest-pulse:
   enabled: false
+  # Explicitly typed as scalars to prevent Helm map-vs-scalar coalesce warnings
+  autoscaling:
+    minReplicas: 1
+    maxReplicas: 2
 ### qtest-scenario ###################################################
 qtest-scenario:
   enabled: false
+  # Explicitly typed as scalars to match the subchart's own values schema
+  # and prevent Helm map-vs-scalar type-coalesce warnings at render time.
+  autoscaling:
+    minReplicas: 2
+    maxReplicas: 4
 ### qtest-session ###################################################
 qtest-session:
   enabled: false
+  # Explicitly typed as scalars to match the subchart's own values schema
+  # and prevent Helm map-vs-scalar type-coalesce warnings at render time.
+  autoscaling:
+    minReplicas: 2
+    maxReplicas: 4

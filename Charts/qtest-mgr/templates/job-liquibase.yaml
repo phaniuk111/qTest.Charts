@@ -19,6 +19,8 @@ spec:
         release: {{ .Release.Name }}
         heritage: {{ .Release.Service }}
     spec:
+      serviceAccountName: {{ template "qtest-mgr.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountsatoken | default false }}
       {{- if .Values.liquibase.securityContext }}
       securityContext: {{- toYaml .Values.liquibase.securityContext | nindent 8 }}
       {{- end }}

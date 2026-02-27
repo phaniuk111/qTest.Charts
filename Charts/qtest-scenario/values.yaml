@@ -25,6 +25,8 @@ serviceAccount:
   annotations: {}
   # A service account will be created for you if set to true. Set to false if you want to use your own.
   name: "qtest-scenario-sa"
+  # Set to true at pod-spec level for Workload Identity (Cloud SQL Proxy needs projected SA token)
+  automountServiceAccountToken: false
 deployment:
   annotations: {}
   singlePodPerNode: false

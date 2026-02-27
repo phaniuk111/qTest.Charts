@@ -47,6 +47,7 @@ spec:
       {{- end }}
     {{- end }}
       serviceAccountName: {{ .Values.serviceAccount.name }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken | default false }}
       {{- if .Values.extraInitContainers }}
       # Currently some extra blocks accept strings
       # to continue with backwards compatibility this is being kept

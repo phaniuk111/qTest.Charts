@@ -1,0 +1,23 @@
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  qTest Elasticsearch — Deployed Successfully
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Cluster endpoint (inside the mesh):
+    http://{{ .Values.service.name }}.{{ .Values.namespace.name }}.svc.cluster.local:{{ .Values.service.httpPort }}
+
+  Verify the cluster is green:
+    kubectl exec -n {{ .Values.namespace.name }} \
+      $(kubectl get pod -n {{ .Values.namespace.name }} -l elasticsearch.role=master -o jsonpath='{.items[0].metadata.name}') \
+      -- curl -s http://localhost:{{ .Values.service.httpPort }}/_cluster/health?pretty
+
+  Configure qtest-mgr to connect:
+    In your qtest-mgr values file, set:
+      qTestManager:
+        elasticSearch:
+          disable: false
+          host: "{{ .Values.service.name }}"
+          scheme: http
+          port: {{ .Values.service.httpPort }}
+          init: true
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

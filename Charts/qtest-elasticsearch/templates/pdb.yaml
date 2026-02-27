@@ -1,0 +1,30 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Values.service.name }}-master-pdb
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "qtest-elasticsearch.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "qtest-elasticsearch.selectorLabels" . | nindent 6 }}
+      elasticsearch.role: master
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Values.service.name }}-data-pdb
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "qtest-elasticsearch.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "qtest-elasticsearch.selectorLabels" . | nindent 6 }}
+      elasticsearch.role: data
+{{- end }}

@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>qTest 2025.8 — GKE Architecture</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #0d0f14; color: #e2e8f0; min-height: 100vh; }
+
+  h1 { text-align: center; padding: 28px 0 4px; font-size: 22px; color: #f8fafc; letter-spacing: 0.5px; }
+  .subtitle { text-align: center; color: #64748b; font-size: 13px; margin-bottom: 24px; }
+
+  .canvas { display: flex; flex-direction: column; gap: 14px; padding: 0 24px 40px; max-width: 1340px; margin: 0 auto; }
+
+  /* ── Zones ── */
+  .zone { border-radius: 14px; padding: 14px 16px 18px; position: relative; }
+  .zone-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
+    position: absolute; top: 10px; left: 16px; opacity: 0.6;
+  }
+  .zone-external { background: #131825; border: 1px solid #252d3d; }
+  .zone-gke      { background: #0c1a10; border: 1px dashed #1f4d2c; }
+  .zone-data     { background: #180e08; border: 1px dashed #5c2d12; }
+  .zone-secrets  { background: #16160a; border: 1px dashed #4a430a; }
+
+  /* ── Layout ── */
+  .row  { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+  .col  { display: flex; flex-direction: column; gap: 8px; }
+  .grow { flex: 1; }
+
+  /* ── Boxes ── */
+  .box {
+    border-radius: 10px; padding: 10px 13px; font-size: 12px;
+    display: flex; flex-direction: column; gap: 3px;
+    border: 1px solid transparent; position: relative;
+  }
+  .box-title { font-weight: 700; font-size: 12px; }
+  .box-sub   { font-size: 10px; opacity: 0.6; line-height: 1.4; margin-top: 2px; }
+
+  .badge {
+    display: inline-block; font-size: 9px; font-weight: 700;
+    border-radius: 4px; padding: 1px 5px; margin-top: 3px;
+  }
+  .bp { background: #1e293b; color: #94a3b8; border: 1px solid #334155; }
+  .bd { background: #1a0a00; color: #fb923c; }
+  .bm { background: #130828; color: #c4b5fd; }
+  .ba { background: #0d1f10; color: #86efac; }
+  .bl { background: #0f1620; color: #7dd3fc; }
+
+  /* colour classes */
+  .c-user    { background:#1a2035; border-color:#2d3f5e; }
+  .c-dns     { background:#141a2a; border-color:#2a3550; color:#94a3b8; }
+  .c-ilb     { background:#0e2018; border-color:#1e5c35; color:#86efac; }
+  .c-gw      { background:#0a1e3d; border-color:#1a4aaa; color:#93c5fd; }
+  .c-vs      { background:#0c1d3a; border-color:#2255bb; color:#7dd3fc; }
+  .c-dr      { background:#081928; border-color:#0a5580; color:#38bdf8; }
+  .c-pa      { background:#110d2a; border-color:#4a1d95; color:#c4b5fd; }
+  .c-mgr     { background:#1a0f40; border-color:#6d28d9; color:#c4b5fd; }
+  .c-launch  { background:#0c2418; border-color:#065f46; color:#6ee7b7; }
+  .c-insights{ background:#1a1000; border-color:#92400e; color:#fcd34d; }
+  .c-params  { background:#0c1e2a; border-color:#075985; color:#7dd3fc; }
+  .c-scenario{ background:#18101a; border-color:#6b21a8; color:#d8b4fe; }
+  .c-session { background:#1f1400; border-color:#9a5c00; color:#fde68a; }
+  .c-session-hi { background:#2a1c00; border-color:#f59e0b; color:#fde68a; box-shadow: 0 0 12px #f59e0b44; }
+  .c-pulse   { background:#0e0e1e; border-color:#3730a3; color:#a5b4fc; }
+  .c-etl     { background:#1a0f08; border-color:#7c2d12; color:#fdba74; }
+  .c-liq     { background:#091820; border-color:#155e75; color:#67e8f9; }
+  .c-es      { background:#1a1100; border-color:#78350f; color:#fbbf24; }
+  .c-db      { background:#1a0a00; border-color:#c2410c; color:#fb923c; }
+  .c-pvc     { background:#091a18; border-color:#134e4a; color:#5eead4; }
+  .c-eso     { background:#091a0f; border-color:#065f46; color:#34d399; }
+  .c-wi      { background:#0a1520; border-color:#1e40af; color:#93c5fd; }
+  .c-gsm     { background:#1a1800; border-color:#a16207; color:#fde047; }
+  .c-ksec    { background:#1a1200; border-color:#92400e; color:#fcd34d; }
+
+  /* ── Login flow step numbers ── */
+  .step {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; border-radius: 50%; font-size: 10px;
+    font-weight: 900; flex-shrink: 0; margin-right: 5px;
+  }
+  .s-orange { background: #f59e0b; color: #000; }
+  .s-blue   { background: #2563eb; color: #fff; }
+  .s-green  { background: #059669; color: #fff; }
+
+  /* ── Login flow box ── */
+  .login-flow {
+    background: #0f1a0a; border: 1px solid #2d5a1b; border-radius: 12px;
+    padding: 12px 14px; font-size: 11px;
+  }
+  .login-flow-title {
+    font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+    color: #86efac; margin-bottom: 8px;
+  }
+  .lf-step { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; color: #cbd5e1; line-height: 1.4; }
+  .lf-step:last-child { margin-bottom: 0; }
+
+  /* ── Section titles ── */
+  .stitle {
+    font-size: 10px; font-weight: 700; letter-spacing: 1.2px;
+    text-transform: uppercase; color: #475569;
+    border-left: 3px solid #2d3748; padding-left: 8px; margin: 6px 0 4px;
+  }
+
+  /* ── Zone connector arrows ── */
+  .zone-arr { text-align: center; font-size: 20px; color: #2d3748; line-height: 1.1; margin: 0; }
+  .zone-arr span { font-size: 10px; color: #475569; display: block; }
+
+  /* ── Routing table ── */
+  .rt { display: grid; grid-template-columns: auto 16px auto auto; gap: 4px 8px; align-items: center; font-size: 11px; margin: 4px 0 8px; }
+  .rt-hdr { font-size: 10px; color: #475569; font-weight: 700; }
+
+  /* ── App grid ── */
+  .ag { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+
+  /* ── Legend ── */
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; padding: 12px 24px 20px; border-top: 1px solid #1e293b; }
+  .li { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #64748b; }
+  .ll { width: 22px; height: 2px; }
+
+  /* ── Highlight border for session (auth dependency) ── */
+  .auth-dep { position: relative; }
+  .auth-dep::before {
+    content: 'AUTH DEPENDENCY';
+    position: absolute; top: -8px; left: 50%; transform: translateX(-50%);
+    font-size: 8px; font-weight: 900; letter-spacing: 1px;
+    background: #f59e0b; color: #000; border-radius: 3px; padding: 1px 5px;
+    white-space: nowrap;
+  }
+
+  .tag { font-size: 9px; background: #1e293b; color: #64748b; border-radius: 3px; padding: 1px 5px; display: inline-block; margin-top: 2px; }
+  .sep { width: 1px; background: #1e293b; align-self: stretch; flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<h1>qTest 2025.8 — GKE + Anthos Service Mesh</h1>
+<p class="subtitle">Helm chart deployment · Cloud SQL Private IP · External Secrets Operator · Istio STRICT mTLS</p>
+
+<div class="canvas">
+
+  <!-- ══════════════════════════════════════════
+       ZONE 1 — External / Client
+  ══════════════════════════════════════════ -->
+  <div class="zone zone-external">
+    <span class="zone-label">External — Corporate Network / VPN</span>
+
+    <div class="row" style="margin-top:30px; gap:20px;">
+
+      <!-- User entry point -->
+      <div class="col" style="min-width:200px;">
+        <div class="box c-user">
+          <div class="box-title">🖥️ User Browser</div>
+          <div class="box-sub">Corporate network or VPN<br>HTTPS :443</div>
+        </div>
+        <div style="font-size:11px;color:#64748b;text-align:center;padding:2px 0;">
+          ① First visit → <strong style="color:#fde68a;">qtest.gke.example.com</strong>
+        </div>
+      </div>
+
+      <div class="sep"></div>
+
+      <!-- DNS -->
+      <div class="col grow">
+        <div class="stitle">Cloud DNS — Private Zone (all → ILB IP)</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px;">
+          <div class="box c-dns" style="border-color:#6d28d9;color:#c4b5fd;">
+            <div class="box-title">🌐 qtest.*</div>
+            <div class="box-sub">Main entry point<br>Login starts here</div>
+          </div>
+          <div class="box c-dns"><div class="box-title">🌐 launch.*</div></div>
+          <div class="box c-dns"><div class="box-title">🌐 insights.*</div></div>
+          <div class="box c-dns"><div class="box-title">🌐 parameters.*</div></div>
+          <div class="box c-dns"><div class="box-title">🌐 scenario.*</div></div>
+          <div class="box c-dns" style="border-color:#f59e0b;color:#fde68a;">
+            <div class="box-title">🌐 sessions.*</div>
+            <div class="box-sub">Auth redirect target</div>
+          </div>
+          <div class="box c-dns"><div class="box-title">🌐 pulse.*</div></div>
+          <div style="display:flex;align-items:center;justify-content:center;font-size:10px;color:#475569;padding:4px;">
+            All 7 → same ILB IP
+          </div>
+        </div>
+      </div>
+
+      <div class="sep"></div>
+
+      <!-- Login flow callout -->
+      <div class="login-flow" style="min-width:260px;">
+        <div class="login-flow-title">👤 First Login Flow</div>
+        <div class="lf-step">
+          <span class="step s-orange">1</span>
+          Browser → <strong>qtest.gke.example.com</strong><br>
+          <span style="color:#64748b;font-size:10px;">Hits ILB → Gateway → VirtualService → mgr-service:8080</span>
+        </div>
+        <div class="lf-step">
+          <span class="step s-orange">2</span>
+          Manager redirects to <strong style="color:#fde68a;">sessions.gke.example.com</strong><br>
+          <span style="color:#64748b;font-size:10px;">preSessionUrl config → auth handshake</span>
+        </div>
+        <div class="lf-step">
+          <span class="step s-orange">3</span>
+          Session service authenticates user<br>
+          <span style="color:#64748b;font-size:10px;">Reads sessions DB · issues token</span>
+        </div>
+        <div class="lf-step">
+          <span class="step s-orange">4</span>
+          Redirect back → Manager<br>
+          <span style="color:#64748b;font-size:10px;">JSESSIONID cookie set · DestinationRule pins to pod</span>
+        </div>
+        <div class="lf-step">
+          <span class="step s-green">✓</span>
+          User is logged in to Manager<br>
+          <span style="color:#64748b;font-size:10px;">Can navigate to Launch, Insights, etc.</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="zone-arr">↓<span>HTTPS :443 via Internal Load Balancer</span></div>
+
+  <!-- ══════════════════════════════════════════
+       ZONE 2 — GKE Cluster
+  ══════════════════════════════════════════ -->
+  <div class="zone zone-gke">
+    <span class="zone-label">GKE Cluster — Namespace: qtest</span>
+
+    <div class="row" style="margin-top:30px; gap:12px;">
+
+      <!-- Left: Istio ingress stack -->
+      <div class="col" style="min-width:195px;">
+        <div class="stitle">Istio Ingress</div>
+
+        <div class="box c-ilb">
+          <div class="box-title">⚖️ Internal Load Balancer</div>
+          <div class="box-sub">GCP ILB · VPC-internal only</div>
+          <span class="badge bp">:443 HTTPS</span>
+        </div>
+
+        <div style="text-align:center;color:#334155;font-size:16px;">↓</div>
+
+        <div class="box c-gw">
+          <div class="box-title">🔀 Istio Gateway</div>
+          <div class="box-sub">qtest/qtest-gateway<br>TLS termination</div>
+          <span class="badge bp">istio-ingressgateway</span>
+        </div>
+
+        <div style="text-align:center;color:#334155;font-size:16px;">↓</div>
+
+        <div class="box c-vs">
+          <div class="box-title">🗺️ VirtualService</div>
+          <div class="box-sub">Authority-based routing<br>7 routes by hostname prefix</div>
+        </div>
+
+        <div style="text-align:center;color:#334155;font-size:16px;">↓</div>
+
+        <div class="box c-dr">
+          <div class="box-title">📌 DestinationRule</div>
+          <div class="box-sub">JSESSIONID sticky sessions<br>Consistent hash LB · 4h TTL<br><em>Manager only</em></div>
+          <span class="badge bm">mTLS ISTIO</span>
+        </div>
+
+        <div class="box c-pa" style="margin-top:2px;">
+          <div class="box-title">🔒 PeerAuthentication</div>
+          <div class="box-sub">Namespace-wide STRICT mTLS<br>All pod↔pod traffic encrypted</div>
+          <span class="badge bm">STRICT</span>
+        </div>
+
+        <!-- Routing table -->
+        <div class="stitle" style="margin-top:6px;">Route Table</div>
+        <div class="rt">
+          <span class="rt-hdr">Host prefix</span><span></span><span class="rt-hdr">Service</span><span class="rt-hdr">Port</span>
+
+          <span style="color:#6ee7b7;">^launch\.</span><span style="color:#475569;">→</span><span>qtest-launch-service</span><span class="badge bp">3080</span>
+          <span style="color:#fcd34d;">^insights\.</span><span style="color:#475569;">→</span><span>insights-service</span><span class="badge bp">8080</span>
+          <span style="color:#7dd3fc;">^parameters\.</span><span style="color:#475569;">→</span><span>qtest-parameters-service</span><span class="badge bp">5080</span>
+          <span style="color:#d8b4fe;">^scenario\.</span><span style="color:#475569;">→</span><span>qtest-scenario-service</span><span class="badge bp">6080</span>
+          <span style="color:#fde68a;">^sessions\.</span><span style="color:#475569;">→</span><span>qtest-session-service</span><span class="badge bp">8080</span>
+          <span style="color:#a5b4fc;">^pulse\.</span><span style="color:#475569;">→</span><span>qtest-pulse-service</span><span class="badge bp">4080</span>
+          <span style="color:#c4b5fd;">^qtest\.</span><span style="color:#475569;">→</span><span>mgr-service <em>(fallback)</em></span><span class="badge bp">8080</span>
+        </div>
+      </div>
+
+      <div class="sep"></div>
+
+      <!-- Right: services + jobs + ES -->
+      <div class="col grow">
+
+        <!-- App Services -->
+        <div class="stitle">Application Services — ClusterIP (Helm subcharts)</div>
+        <div class="ag">
+
+          <!-- Manager — step 1 entry -->
+          <div class="box c-mgr" style="border-color:#9333ea; box-shadow:0 0 10px #6d28d944;">
+            <div class="box-title">
+              <span class="step s-orange" style="margin-right:4px;">1</span>🏠 qtest-mgr
+            </div>
+            <div class="box-sub">Main app · entry point<br>HPA · DestinationRule</div>
+            <span class="badge bp">:8080</span>
+            <span class="badge bd">DB: qtest</span>
+          </div>
+
+          <!-- Session — highlighted as auth dep -->
+          <div class="box c-session-hi auth-dep" style="margin-top:8px;">
+            <div class="box-title">
+              <span class="step s-orange" style="margin-right:4px;">2</span>🔐 qtest-session
+            </div>
+            <div class="box-sub">Auth service · Manager redirects here<br>Issues session token → JSESSIONID</div>
+            <span class="badge bp">:8080</span>
+            <span class="badge bd">DB: sessions</span>
+          </div>
+
+          <div class="box c-launch">
+            <div class="box-title">🚀 qtest-launch</div>
+            <div class="box-sub">Test execution launcher</div>
+            <span class="badge bp">:3080</span>
+            <span class="badge bd">DB: qtest</span>
+          </div>
+
+          <div class="box c-insights">
+            <div class="box-title">📊 qtest-insights</div>
+            <div class="box-sub">Analytics & reporting</div>
+            <span class="badge bp">:8080</span>
+            <span class="badge bd">DB: qtest+sessions</span>
+          </div>
+
+          <div class="box c-params">
+            <div class="box-title">⚙️ qtest-parameters</div>
+            <div class="box-sub">TDM — test data mgmt</div>
+            <span class="badge bp">:5080</span>
+            <span class="badge bd">DB: parameters</span>
+          </div>
+
+          <div class="box c-scenario">
+            <div class="box-title">📋 qtest-scenario</div>
+            <div class="box-sub">BDD / scenario mgmt</div>
+            <span class="badge bp">:6080</span>
+            <span class="badge bd">DB: scenario</span>
+          </div>
+
+          <div class="box c-pulse">
+            <div class="box-title">💓 qtest-pulse</div>
+            <div class="box-sub">Event / webhook engine</div>
+            <span class="badge bp">:4080</span>
+            <span class="badge bd">DB: pulse</span>
+          </div>
+
+          <div class="box c-etl">
+            <div class="box-title">🔄 insights-etl</div>
+            <div class="box-sub">Batch ETL worker<br>No Service — internal only</div>
+            <span class="badge bd">DB: qtest+sessions</span>
+          </div>
+
+        </div>
+
+        <!-- Jobs + ES row -->
+        <div class="row" style="margin-top:10px; gap:10px;">
+          <div class="col" style="flex:1;">
+            <div class="stitle">Pre-install Job</div>
+            <div class="box c-liq">
+              <div class="box-title">🗄️ Liquibase Job</div>
+              <div class="box-sub">DB schema migrations<br>Runs before install/upgrade<br>Direct Private IP connection</div>
+              <span class="badge bd">All 5 DBs</span>
+            </div>
+          </div>
+          <div class="col" style="flex:2;">
+            <div class="stitle">Search (standalone chart — deploy first)</div>
+            <div class="box c-es">
+              <div class="box-title">🔍 qtest-elasticsearch</div>
+              <div class="box-sub">ES 8.x · master + data + coordinating StatefulSets<br>Port 9300 excluded from Istio sidecar (transport traffic)</div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">
+                <span class="badge bp">:9200 REST</span>
+                <span class="badge bp">:9300 transport (excluded)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="zone-arr">↓<span>TCP :5432 · Direct Private IP (no proxy)</span></div>
+
+  <!-- ══════════════════════════════════════════
+       ZONE 3 — Data
+  ══════════════════════════════════════════ -->
+  <div class="zone zone-data">
+    <span class="zone-label">GCP Data Layer — Same VPC</span>
+    <div class="row" style="margin-top:30px; gap:12px; flex-wrap:wrap;">
+
+      <div class="box c-db" style="min-width:280px; flex:2;">
+        <div class="box-title">🐘 Cloud SQL — PostgreSQL (Private IP)</div>
+        <div class="box-sub">No Auth Proxy · GKE VPC peered to Cloud SQL VPC<br>Auth: username + password from qtest-manager-secret</div>
+        <div style="display:flex;gap:5px;margin-top:6px;flex-wrap:wrap;">
+          <span class="badge bd">qtest</span>
+          <span class="badge bd">sessions</span>
+          <span class="badge bd">parameters</span>
+          <span class="badge bd">pulse</span>
+          <span class="badge bd">scenario</span>
+        </div>
+        <div class="box-sub" style="margin-top:5px;color:#fb923c;">Replace CLOUD_SQL_PRIVATE_IP in values-gke-custom.yaml</div>
+      </div>
+
+      <div class="box c-pvc" style="min-width:180px; flex:1;">
+        <div class="box-title">💾 GCS FUSE CSI PVC</div>
+        <div class="box-sub">Manager attachment storage<br>Required — GCE PD ≠ RWX</div>
+        <span class="badge ba">ReadWriteMany</span>
+      </div>
+
+      <div class="box c-pvc" style="min-width:150px; flex:1;">
+        <div class="box-title">📁 PVC — Pulse Logs</div>
+        <div class="box-sub">PM2 log storage</div>
+        <span class="badge ba">ReadWriteMany</span>
+      </div>
+
+      <div class="box c-pvc" style="min-width:150px; flex:1;">
+        <div class="box-title">📁 PVC — Session Files</div>
+        <div class="box-sub">Attachment storage<br>disk_storage mode</div>
+        <span class="badge ba">ReadWriteMany</span>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="zone-arr">↓<span>Workload Identity → Secret Manager access</span></div>
+
+  <!-- ══════════════════════════════════════════
+       ZONE 4 — Secrets
+  ══════════════════════════════════════════ -->
+  <div class="zone zone-secrets">
+    <span class="zone-label">GCP Secrets Layer</span>
+    <div class="row" style="margin-top:30px; gap:12px; flex-wrap:wrap;">
+
+      <div class="box c-eso" style="min-width:200px;">
+        <div class="box-title">🔄 External Secrets Operator</div>
+        <div class="box-sub">Syncs GSM → K8s Secrets<br>refreshInterval: 1h<br>SecretStore: gcp-secret-store</div>
+        <span class="tag">ExternalSecret CRD</span>
+      </div>
+
+      <div class="box c-wi" style="min-width:200px;">
+        <div class="box-title">🪪 Workload Identity</div>
+        <div class="box-sub">KSA → GSA binding<br>qtest-sa → GSA<br>roles/secretmanager.secretAccessor</div>
+        <span class="tag">iam.gke.io/gcp-service-account</span>
+      </div>
+
+      <div class="box c-gsm" style="min-width:260px; flex:1;">
+        <div class="box-title">🔑 Google Secret Manager (24 secrets — 1 per key)</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:3px;margin-top:6px;font-size:10px;">
+          <span style="color:#fde047;">qtest-db-password</span>
+          <span style="color:#fde047;">sessions-secret-key</span>
+          <span style="color:#fde047;">csrf-key</span>
+          <span style="color:#fde047;">csrf-secret-key</span>
+          <span style="color:#fde047;">pulse-executor-api-key</span>
+          <span style="color:#fde047;">aes-secret-keys</span>
+          <span style="color:#fde047;">scenario-refresh-token</span>
+          <span style="color:#fde047;">jira-cypher-key</span>
+          <span style="color:#94a3b8;">oauth.app.* × 9</span>
+          <span style="color:#475569;">mail/jira/ld (empty)</span>
+        </div>
+      </div>
+
+      <div class="col" style="gap:7px; flex:1; min-width:220px;">
+        <div class="stitle">K8s Secrets (created by ESO)</div>
+        <div class="box c-ksec">
+          <div class="box-title">🔐 qtest-manager-secret</div>
+          <div class="box-sub">Consumed by ALL subcharts<br>jdbc.password · sessions.secret.key<br>csrfKey · pulseExecutorApiKey · oauth.*</div>
+        </div>
+        <div class="box c-ksec">
+          <div class="box-title">🔐 qtest-aes-secret-keys</div>
+          <div class="box-sub">AESsecretKeys (Manager encryption)</div>
+        </div>
+        <div class="box c-ksec">
+          <div class="box-title">🔐 qtest-scenario-secret</div>
+          <div class="box-sub">Refresh token · jiraCypherKey</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div><!-- /canvas -->
+
+<!-- Legend -->
+<div class="legend">
+  <div class="li"><div class="ll" style="background:repeating-linear-gradient(90deg,#475569 0 4px,transparent 4px 8px);"></div>Zone boundary</div>
+  <div class="li"><div class="ll" style="background:#2563eb;"></div>Istio / mTLS traffic</div>
+  <div class="li"><div class="ll" style="background:#c2410c;"></div>DB (Private IP)</div>
+  <div class="li"><div class="ll" style="background:#a16207;"></div>Secret pull (WI→GSM)</div>
+  <div class="li"><span class="step s-orange" style="width:14px;height:14px;font-size:9px;">1</span>Login step</div>
+  <div class="li"><span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:#f59e0b;margin-right:2px;"></span>Auth dependency</div>
+  <div class="li" style="color:#c4b5fd;">■ Manager</div>
+  <div class="li" style="color:#6ee7b7;">■ Launch</div>
+  <div class="li" style="color:#fcd34d;">■ Insights</div>
+  <div class="li" style="color:#7dd3fc;">■ Parameters</div>
+  <div class="li" style="color:#d8b4fe;">■ Scenario</div>
+  <div class="li" style="color:#fde68a;">■ Session</div>
+  <div class="li" style="color:#a5b4fc;">■ Pulse</div>
+</div>
+
+</body>
+</html>

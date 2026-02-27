@@ -37,16 +37,20 @@ spec:
       topologySpreadConstraints:
 {{ toYaml . | indent 8 }}
     {{- end }}
-    {{ if .Values.imageCredentials.enabled }}
-      {{ if .Values.imageCredentials.existingImageCredentials }}
+    {{- if .Values.imageCredentials.enabled }}
+      {{- if .Values.imageCredentials.existingImageCredentials }}
       imagePullSecrets:
         - name: {{ $existingImageCredentials }}
-      {{ else }}
+      {{- else }}
       imagePullSecrets:
         - name: {{ $imageCredentials }}
       {{- end }}
     {{- end }}
       serviceAccountName: {{ .Values.serviceAccount.name }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken | default false }}
+      {{- if .Values.securityContext }}
+      securityContext: {{- toYaml .Values.securityContext | nindent 8 }}
+      {{- end }}
       {{- if .Values.extraInitContainers }}
       # Currently some extra blocks accept strings
       # to continue with backwards compatibility this is being kept

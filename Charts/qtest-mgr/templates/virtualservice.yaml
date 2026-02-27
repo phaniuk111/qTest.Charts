@@ -1,0 +1,82 @@
+{{- if .Values.istio.enabled }}
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: {{ template "qtest-mgr.fullname" . }}
+  namespace: {{ .Values.namespace.name }}
+spec:
+  hosts:
+{{ toYaml .Values.istio.hosts | indent 4 }}
+  gateways:
+    - {{ .Values.istio.gateway }}
+  http:
+  {{- if index .Values "qtest-launch" "enabled" }}
+  - match:
+    - authority:
+        regex: "^launch\\..*"
+    route:
+    - destination:
+        host: qtest-launch-service
+        port:
+          number: 3080
+  {{- end }}
+  {{- if index .Values "qtest-insights" "enabled" }}
+  - match:
+    - authority:
+        regex: "^insights\\..*"
+    route:
+    - destination:
+        host: insights-service
+        port:
+          number: 8080
+  {{- end }}
+  {{- if index .Values "qtest-parameters" "enabled" }}
+  - match:
+    - authority:
+        regex: "^parameters\\..*"
+    route:
+    - destination:
+        host: qtest-parameters-service
+        port:
+          number: 5080
+  {{- end }}
+  {{- if index .Values "qtest-scenario" "enabled" }}
+  - match:
+    - authority:
+        regex: "^scenario\\..*"
+    route:
+    - destination:
+        host: qtest-scenario-service
+        port:
+          number: 6080
+  {{- end }}
+  {{- if index .Values "qtest-session" "enabled" }}
+  - match:
+    - authority:
+        regex: "^sessions\\..*"
+    route:
+    - destination:
+        host: qtest-session-service
+        port:
+          number: 8080
+  {{- end }}
+  {{- if index .Values "qtest-pulse" "enabled" }}
+  - match:
+    - authority:
+        regex: "^pulse\\..*"
+    route:
+    - destination:
+        host: qtest-pulse-service
+        port:
+          number: 4080
+  {{- end }}
+  # Fallback for Manager (qtest.gke...)
+  - match:
+    - authority:
+        regex: "^qtest\\..*"
+    route:
+    - destination:
+        host: {{ .Values.service.serviceName }}
+        port:
+          number: {{ .Values.service.port }}
+{{- end }}

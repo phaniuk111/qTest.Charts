@@ -1,0 +1,111 @@
+# Default values for qtest-elasticsearch
+# Native Kubernetes manifests — no Bitnami dependency.
+
+namespace:
+  name: qtest
+
+## Elasticsearch image
+image:
+  repository: docker.elastic.co/elasticsearch/elasticsearch
+  tag: "8.15.0"
+  pullPolicy: IfNotPresent
+
+## Cluster name used in elasticsearch.yml
+clusterName: qtest-es
+
+## Service configuration
+service:
+  name: qtest-elasticsearch
+  type: ClusterIP
+  httpPort: 9200
+  transportPort: 9300
+
+## ── Master nodes ─────────────────────────────────────────────
+master:
+  replicas: 1
+  ## Java heap — set Xms and Xmx to the same value (half of memory limit)
+  heapSize: 512m
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 8Gi
+    accessMode: ReadWriteOnce
+  podSecurityContext:
+    fsGroup: 1000
+    runAsUser: 1000
+    runAsNonRoot: true
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+## ── Data nodes ───────────────────────────────────────────────
+data:
+  replicas: 1
+  heapSize: 1g
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 30Gi
+    accessMode: ReadWriteOnce
+  podSecurityContext:
+    fsGroup: 1000
+    runAsUser: 1000
+    runAsNonRoot: true
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+## ── Coordinating / client nodes (optional) ───────────────────
+## Set replicas to 0 to skip deploying coordinating nodes.
+## For small clusters, master+data handle coordinating duties.
+coordinating:
+  replicas: 0
+  heapSize: 512m
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  podSecurityContext:
+    fsGroup: 1000
+    runAsUser: 1000
+    runAsNonRoot: true
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+## ── Security ─────────────────────────────────────────────────
+## Disable xpack security for internal-only deployment behind ASM mTLS.
+## Set to true and provide certs if you need ES-native TLS/auth.
+security:
+  enabled: false
+
+## Additional elasticsearch.yml settings merged into the ConfigMap
+extraConfig: {}
+#  action.auto_create_index: ".watches,.triggered_watches,.watcher-history-*"
+
+## Init container to set vm.max_map_count (requires privileged).
+## On GKE this is already set on the host, so disable by default.
+initSysctl:
+  enabled: false
+
+## PodDisruptionBudget
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1
