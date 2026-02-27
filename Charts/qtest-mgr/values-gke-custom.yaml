@@ -59,9 +59,9 @@ serviceAccount:
     iam.gke.io/gcp-service-account: "SA_NAME@PROJECT_ID.iam.gserviceaccount.com"  # TODO: replace
 
 # ── External Secrets Operator (Google Secret Manager) ──────────────
-# Each remoteRef.key is the NAME of a secret in Google Secret Manager.
-# Create these secrets in GCP first, each containing a single plaintext value.
-# For unused integrations (Jira, SMTP, LaunchDarkly), store an empty string.
+# Per official Tricentis docs, ESO manages ONLY DB credentials.
+# All other secrets (OAuth, CSRF, session, Pulse, AES, Scenario)
+# are created once via kubectl — see "kubectl create secret" below.
 externalSecrets:
   enabled: true
   gcpProjectID: "PROJECT_ID"                    # TODO: replace
@@ -71,51 +71,40 @@ externalSecrets:
   refreshInterval: "1h"                         # how often ESO syncs from GSM
 
   # ── Google Secret Manager secret names ────────────────────────────
-  # One GSM secret per key. Each holds a single plaintext value.
-  # Only compulsory secrets are listed. To enable optional OAuth app
-  # secrets (Jenkins, Bamboo, Tosca, etc.), add their remoteRef here.
+  # Only DB passwords are managed via ESO (supports password rotation).
   remoteRefs:
-    # Database (REQUIRED)
-    dbPassword: "qtest-db-password"                       # Cloud SQL superuser password
+    # Database (REQUIRED — create in GSM first)
+    dbPassword: "qtest-db-password"                       # Cloud SQL password
     dbReadonlyPassword: "qtest-db-readonly-password"      # can be same as dbPassword
 
-    # Jira OAuth2 (REQUIRED — qTest won't start without these)
-    jiraOauth2Password: "qtest-jira-oauth2-password"
-    jiraOauth2Salt: "qtest-jira-oauth2-salt"
-
-    # Session & CSRF (REQUIRED — generate with: openssl rand -base64 32)
-    sessionsSecretKey: "qtest-sessions-secret-key"
-    csrfKey: "qtest-csrf-key"
-    csrfSecretKey: "qtest-csrf-secret-key"
-
-    # Pulse (REQUIRED — generate with: openssl rand -base64 32)
-    pulseExecutorApiKey: "qtest-pulse-executor-api-key"
-
-    # Encryption (REQUIRED — generate with: openssl rand -base64 32)
-    aesSecretKeys: "qtest-aes-secret-keys"
-
-    # Scenario (REQUIRED — generate with: openssl rand -base64 32)
-    scenarioRefreshTokenSecret: "qtest-scenario-refresh-token-secret"
-    jiraCypherKey: "qtest-jira-cypher-key"
-
-    # Insights i-ETL (defaults to same DB password — override if separate users)
+    # Insights i-ETL (all 4 keys default to same DB password)
     iEtlQtestDbPassword: "qtest-db-password"
     iEtlSessionsWriteDbPassword: "qtest-db-password"
     iEtlSessionsReadDbPassword: "qtest-db-password"
     iEtlInsightsDbPassword: "qtest-db-password"
 
-    # ── Optional (uncomment to enable — must also create in GSM) ────
-    # oauthSpSecret: "qtest-oauth-sp-secret"
-    # oauthSessionsSecret: "qtest-oauth-sessions-secret"
-    # oauthExplorerSecret: "qtest-oauth-explorer-secret"
-    # oauthQmapSecret: "qtest-oauth-qmap-secret"
-    # oauthJenkinsSecret: "qtest-oauth-jenkins-secret"
-    # oauthBambooSecret: "qtest-oauth-bamboo-secret"
-    # oauthPulseSecret: "qtest-oauth-pulse-secret"
-    # oauthToscaSecret: "qtest-oauth-tosca-secret"
-    # oauthWebExplorerSecret: "qtest-oauth-web-explorer-secret"
-    # mailPassword: "qtest-mail-password"
-    # launchdarklySdkKey: "qtest-launchdarkly-sdk-key"
+# ── One-time kubectl secrets (run ONCE before helm install) ────────
+# kubectl create secret generic qtest-manager-secret -n qtest \
+#   --from-literal=oauth.app.sp.secret="{value}" \
+#   --from-literal=oauth.app.sessions.secret="{value}" \
+#   --from-literal=oauth.app.explorer.secret="{value}" \
+#   --from-literal=oauth.app.qmap.secret="{value}" \
+#   --from-literal=oauth.app.pulse.secret="{value}" \
+#   --from-literal=jira.oauth2.password="{generated}" \
+#   --from-literal=jira.oauth2.salt="{generated}" \
+#   --dry-run=client -o yaml | kubectl apply -f -
+#
+# kubectl patch secret qtest-manager-secret -n qtest --type merge \
+#   -p='{"data":{"sessions.secret.key":"<BASE64>","csrfKey":"<BASE64>","csrf.secret.key":"<BASE64>","qtestPulseExecutorApiKey":"<BASE64>"}}'
+#
+# kubectl create secret generic qtest-aes-secret-keys -n qtest \
+#   --from-literal=AESsecretKeys="$(openssl rand -base64 32)" \
+#   --dry-run=client -o yaml | kubectl apply -f -
+#
+# kubectl create secret generic qtest-scenario-secret -n qtest \
+#   --from-literal=qTestScenarioRefreshTokenSecret="$(openssl rand -base64 32)" \
+#   --from-literal=jiraCypherKey="$(openssl rand -base64 32)" \
+#   --dry-run=client -o yaml | kubectl apply -f -
 
 # ── Scheduling / Affinity ──────────────────────────────────────────
 affinity:
