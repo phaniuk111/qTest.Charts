@@ -109,6 +109,12 @@ externalSecrets:
     jiraOauth2Salt: "qtest-jira-oauth2-salt"              # empty — not using Jira
     launchdarklySdkKey: "qtest-launchdarkly-sdk-key"      # empty — not using LD
 
+    # Insights i-ETL (defaults to same DB password — override if separate users)
+    iEtlQtestDbPassword: "qtest-db-password"
+    iEtlSessionsWriteDbPassword: "qtest-db-password"
+    iEtlSessionsReadDbPassword: "qtest-db-password"
+    iEtlInsightsDbPassword: "qtest-db-password"
+
 # ── Scheduling / Affinity ──────────────────────────────────────────
 affinity:
   podAntiAffinity:
@@ -354,3 +360,26 @@ qtest-insights-etl:
     qTestInsightsEtlSessionDBUser: "qtest_user"
     writeSessionsDBHost: "CLOUD_SQL_PRIVATE_IP"                # TODO: replace
     writeSessionsDBUser: "qtest_user"
+
+# ── qTest Insights i-ETL ────────────────────────────────────────────
+qtest-i-etl:
+  enabled: true
+  secrets:
+    enabled: false                                         # ESO creates qtest-i-etl-secret
+    name: qtest-i-etl-secret
+  liquibase:
+    enabled: true
+  serviceAccount:
+    create: true
+    annotations:
+      iam.gke.io/gcp-service-account: "SA_NAME@PROJECT_ID.iam.gserviceaccount.com"  # TODO: replace
+  qTestInsightsIEtl:
+    readQTestDBHost: "CLOUD_SQL_PRIVATE_IP"                  # TODO: replace
+    readQTestDBUser: "qtest_user"
+    writeQTestDBHost: "CLOUD_SQL_PRIVATE_IP"                 # TODO: replace
+    writeQTestDBUser: "qtest_user"
+    sessionsReadDBHost: "CLOUD_SQL_PRIVATE_IP"               # TODO: replace
+    sessionsReadDBUser: "qtest_user"
+    sessionsWriteDBHost: "CLOUD_SQL_PRIVATE_IP"              # TODO: replace
+    sessionsWriteDBUser: "qtest_user"
+    insightsDBUser: "qtest_user"
