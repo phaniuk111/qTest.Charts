@@ -72,21 +72,16 @@ externalSecrets:
 
   # ── Google Secret Manager secret names ────────────────────────────
   # One GSM secret per key. Each holds a single plaintext value.
+  # Only compulsory secrets are listed. To enable optional OAuth app
+  # secrets (Jenkins, Bamboo, Tosca, etc.), add their remoteRef here.
   remoteRefs:
     # Database (REQUIRED)
     dbPassword: "qtest-db-password"                       # Cloud SQL superuser password
     dbReadonlyPassword: "qtest-db-readonly-password"      # can be same as dbPassword
 
-    # OAuth app secrets (REQUIRED — generate with: openssl rand -base64 32)
-    oauthSpSecret: "qtest-oauth-sp-secret"
-    oauthSessionsSecret: "qtest-oauth-sessions-secret"
-    oauthExplorerSecret: "qtest-oauth-explorer-secret"
-    oauthQmapSecret: "qtest-oauth-qmap-secret"
-    oauthJenkinsSecret: "qtest-oauth-jenkins-secret"
-    oauthBambooSecret: "qtest-oauth-bamboo-secret"
-    oauthPulseSecret: "qtest-oauth-pulse-secret"
-    oauthToscaSecret: "qtest-oauth-tosca-secret"
-    oauthWebExplorerSecret: "qtest-oauth-web-explorer-secret"
+    # Jira OAuth2 (REQUIRED — qTest won't start without these)
+    jiraOauth2Password: "qtest-jira-oauth2-password"
+    jiraOauth2Salt: "qtest-jira-oauth2-salt"
 
     # Session & CSRF (REQUIRED — generate with: openssl rand -base64 32)
     sessionsSecretKey: "qtest-sessions-secret-key"
@@ -103,17 +98,24 @@ externalSecrets:
     scenarioRefreshTokenSecret: "qtest-scenario-refresh-token-secret"
     jiraCypherKey: "qtest-jira-cypher-key"
 
-    # Integration keys (OPTIONAL — store empty string "" if unused)
-    mailPassword: "qtest-mail-password"                   # empty — not using SMTP
-    jiraOauth2Password: "qtest-jira-oauth2-password"      # empty — not using Jira
-    jiraOauth2Salt: "qtest-jira-oauth2-salt"              # empty — not using Jira
-    launchdarklySdkKey: "qtest-launchdarkly-sdk-key"      # empty — not using LD
-
     # Insights i-ETL (defaults to same DB password — override if separate users)
     iEtlQtestDbPassword: "qtest-db-password"
     iEtlSessionsWriteDbPassword: "qtest-db-password"
     iEtlSessionsReadDbPassword: "qtest-db-password"
     iEtlInsightsDbPassword: "qtest-db-password"
+
+    # ── Optional (uncomment to enable — must also create in GSM) ────
+    # oauthSpSecret: "qtest-oauth-sp-secret"
+    # oauthSessionsSecret: "qtest-oauth-sessions-secret"
+    # oauthExplorerSecret: "qtest-oauth-explorer-secret"
+    # oauthQmapSecret: "qtest-oauth-qmap-secret"
+    # oauthJenkinsSecret: "qtest-oauth-jenkins-secret"
+    # oauthBambooSecret: "qtest-oauth-bamboo-secret"
+    # oauthPulseSecret: "qtest-oauth-pulse-secret"
+    # oauthToscaSecret: "qtest-oauth-tosca-secret"
+    # oauthWebExplorerSecret: "qtest-oauth-web-explorer-secret"
+    # mailPassword: "qtest-mail-password"
+    # launchdarklySdkKey: "qtest-launchdarkly-sdk-key"
 
 # ── Scheduling / Affinity ──────────────────────────────────────────
 affinity:
@@ -165,16 +167,18 @@ qTestManager:
       postgresReadOnlyUserName: "qtest_user"
       postgresReadOnlyPassword: ""
 
-# ── Persistence (GCS FUSE CSI) ──────────────────────────────────────
-# qTest Manager requires ReadWriteMany. GKE default PDs do NOT support RWX.
-# Use a GCS FUSE CSI PV/PVC to satisfy this requirement.
-# See: https://cloud.google.com/kubernetes-engine/docs/how-to/persistent-volumes/cloud-storage-fuse-csi-driver
+# ── Persistence (standard GCE Persistent Disk — ReadWriteOnce) ──────
+# Single Manager pod → ReadWriteOnce is sufficient.
+# GCE PD is provisioned automatically by GKE's default StorageClass.
+# No GCS FUSE, no Filestore, no extra setup needed.
 #
-# Before helm install, apply a PV + PVC pointing to your GCS bucket:
-#   kubectl apply -f qtest-gcs-pv.yaml -n qtest
+# ⚠️  If you later scale Manager beyond 1 replica you MUST switch to a
+#     ReadWriteMany volume (Filestore NFS or GCS FUSE CSI) and update
+#     persistence.storageClass accordingly.
 persistence:
   enabled: true
-  existingClaim: "qtest-gcs-pvc"                       # TODO: replace with your GCS FUSE PVC name
+  storageClass: "standard-rwo"    # GKE default GCE PD (ReadWriteOnce)
+  size: 20Gi                      # adjust to your attachment volume needs
 
 # ── Istio VirtualService ─────────────────────────────────────────────
 istio:
@@ -196,6 +200,23 @@ ingress:
 # ── Internal Service Configuration ──────────────────────────────────
 service:
   type: ClusterIP
+
+# ── Autoscaling — capped at 1 replica (ReadWriteOnce PVC constraint) ─
+# Manager uses a GCE PD (ReadWriteOnce). Scaling beyond 1 replica would
+# cause pod scheduling failures as the PD can only attach to one node.
+# Remove this block and switch to ReadWriteMany storage before scaling.
+autoscaling:
+  enabled: false
+  minReplicas:
+    ui: 1
+    api: 1
+    notification: 1
+    poller: 1
+  maxReplicas:
+    ui: 1
+    api: 1
+    notification: 1
+    poller: 1
 
 # ── Liquibase Migration Job ──────────────────────────────────────────
 # Liquibase connects directly to Cloud SQL Private IP — no sidecar needed.
