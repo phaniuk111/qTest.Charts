@@ -94,6 +94,9 @@ externalSecrets:
     # Pulse (1)
     pulseExecutorApiKey: "qtest-pulse-executor-api-key"
 
+    # Mail / SMTP (1 — REQUIRED by Insights pod startup, store empty string if unused)
+    mailPassword: "qtest-mail-password"
+
     # AES encryption — qtest-aes-secret-keys (1)
     aesSecretKeys: "qtest-aes-secret-keys"
 
