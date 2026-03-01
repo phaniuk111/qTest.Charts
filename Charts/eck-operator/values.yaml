@@ -1,0 +1,19 @@
+# Values for ECK Operator Wrapper Chart
+# This passes down configurations to the official eck-operator sub-chart.
+
+eck-operator:
+  # The webhook validates ECK Custom Resources. 
+  # This relies on port 9443 internally.
+  webhook:
+    enabled: true
+
+  # Ensure ASM/Istio sidecar is injected into the operator pod
+  # by labeling the pod itself (though namespace injection usually handles this).
+  podLabels:
+    sidecar.istio.io/inject: "true"
+
+  # CRITICAL FOR ASM:
+  # Exclude port 9443 from Istio interception. Without this, the 
+  # ECK validating webhook will break and block applying Elasticsearch YAMLs.
+  podAnnotations:
+    traffic.sidecar.istio.io/excludeInboundPorts: "9443"
