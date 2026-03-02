@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>qTest 2025.8 — GKE Architecture</title>
+<title>qTest 2026.2 — GKE Architecture</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Segoe UI', Arial, sans-serif; background: #0d0f14; color: #e2e8f0; min-height: 100vh; }
@@ -135,8 +135,8 @@
 </head>
 <body>
 
-<h1>qTest 2025.8 — GKE + Anthos Service Mesh</h1>
-<p class="subtitle">Helm chart deployment · Cloud SQL Private IP · External Secrets Operator · Istio STRICT mTLS</p>
+<h1>qTest 2026.2 — GKE + Anthos Service Mesh</h1>
+<p class="subtitle">Helm chart deployment · Cloud SQL Private IP (no Auth Proxy) · ESO: 17 GSM secrets → 4 K8s Secrets → 22 keys · Istio STRICT mTLS</p>
 
 <div class="canvas">
 
@@ -436,8 +436,15 @@
 
       <div class="box c-eso" style="min-width:200px;">
         <div class="box-title">🔄 External Secrets Operator</div>
-        <div class="box-sub">Syncs GSM → K8s Secrets<br>refreshInterval: 1h<br>SecretStore: gcp-secret-store</div>
-        <span class="tag">ExternalSecret CRD</span>
+        <div class="box-sub">
+          4 ExternalSecret resources<br>
+          17 GSM secrets → 22 K8s keys<br>
+          refreshInterval: 1h<br>
+          SecretStore: gcp-secret-store<br>
+          creationPolicy: Owner
+        </div>
+        <span class="tag">helm: external-secrets/external-secrets</span>
+        <span class="tag" style="margin-top:3px;color:#f59e0b;background:#1c1000;border:1px solid #78350f;">Note: SecretStore (ns-scoped) · consider ClusterSecretStore</span>
       </div>
 
       <div class="box c-wi" style="min-width:200px;">
@@ -446,35 +453,89 @@
         <span class="tag">iam.gke.io/gcp-service-account</span>
       </div>
 
-      <div class="box c-gsm" style="min-width:260px; flex:1;">
-        <div class="box-title">🔑 Google Secret Manager (24 secrets — 1 per key)</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:3px;margin-top:6px;font-size:10px;">
-          <span style="color:#fde047;">qtest-db-password</span>
-          <span style="color:#fde047;">sessions-secret-key</span>
-          <span style="color:#fde047;">csrf-key</span>
-          <span style="color:#fde047;">csrf-secret-key</span>
-          <span style="color:#fde047;">pulse-executor-api-key</span>
-          <span style="color:#fde047;">aes-secret-keys</span>
-          <span style="color:#fde047;">scenario-refresh-token</span>
-          <span style="color:#fde047;">jira-cypher-key</span>
-          <span style="color:#94a3b8;">oauth.app.* × 9</span>
-          <span style="color:#475569;">mail/jira/ld (empty)</span>
+      <div class="box c-gsm" style="min-width:300px; flex:1;">
+        <div class="box-title">🔑 Google Secret Manager — 17 GSM secrets → 22 K8s keys</div>
+        <div style="margin-top:8px;font-size:10px;display:flex;flex-direction:column;gap:6px;">
+
+          <div>
+            <span style="color:#94a3b8;font-weight:700;">① DB credentials (2) </span>
+            <span style="color:#fde047;">qtest-db-password · qtest-db-readonly-password</span>
+          </div>
+
+          <div>
+            <span style="color:#94a3b8;font-weight:700;">② OAuth app secrets (5) </span>
+            <span style="color:#64748b;font-size:9px;">internal tokens only — Jenkins/Bamboo/Tosca not used</span><br>
+            <span style="color:#fde047;">qtest-oauth-sp-secret · qtest-oauth-sessions-secret · qtest-oauth-explorer-secret · qtest-oauth-qmap-secret · qtest-oauth-pulse-secret</span>
+          </div>
+
+          <div style="background:#1f0a00;border:1px solid #c2410c;border-radius:6px;padding:6px 8px;">
+            <div style="color:#fb923c;font-weight:700;font-size:10px;">⚠️ ③ Jira OAuth2 (2) — MUST have real values even if not using Jira</div>
+            <div style="color:#fde047;margin-top:3px;">qtest-jira-oauth2-password · qtest-jira-oauth2-salt</div>
+            <div style="color:#94a3b8;margin-top:3px;font-size:9px;line-height:1.4;">Internal qTest encryption keys (not Jira credentials).<br>qTest won't start if either is empty.</div>
+          </div>
+
+          <div>
+            <span style="color:#94a3b8;font-weight:700;">④ Internal service keys (4) </span><br>
+            <span style="color:#fde047;">sessions-secret-key · pulse-executor-api-key · csrf-secret-key · csrf-key</span>
+            <span style="color:#64748b;font-size:9px;display:block;margin-top:2px;">sessions &amp; pulse: double-base64 encoded</span>
+          </div>
+
+          <div>
+            <span style="color:#94a3b8;font-weight:700;">⑤ Mail password (1) </span>
+            <span style="color:#fde047;">qtest-mail-password</span>
+            <span style="color:#64748b;font-size:9px;"> — empty string, required by Insights startup</span>
+          </div>
+
+          <div>
+            <span style="color:#94a3b8;font-weight:700;">⑥ AES key (1) </span>
+            <span style="color:#fde047;">qtest-aes-secret-keys</span>
+            <span style="color:#64748b;font-size:9px;"> — 32-byte base64</span>
+          </div>
+
+          <div>
+            <span style="color:#94a3b8;font-weight:700;">⑦ Scenario (2) </span>
+            <span style="color:#fde047;">qtest-scenario-refresh-token-secret · qtest-jira-cypher-key</span>
+          </div>
+
         </div>
       </div>
 
-      <div class="col" style="gap:7px; flex:1; min-width:220px;">
-        <div class="stitle">K8s Secrets (created by ESO)</div>
+      <div class="col" style="gap:7px; flex:1; min-width:240px;">
+        <div class="stitle">4 K8s Secrets — assembled by ESO (22 keys total)</div>
         <div class="box c-ksec">
-          <div class="box-title">🔐 qtest-manager-secret</div>
-          <div class="box-sub">Consumed by ALL subcharts<br>jdbc.password · sessions.secret.key<br>csrfKey · pulseExecutorApiKey · oauth.*</div>
+          <div class="box-title">🔐 qtest-manager-secret <span style="font-size:9px;color:#94a3b8;font-weight:400;">(15 keys)</span></div>
+          <div class="box-sub">Consumed by ALL subcharts<br>
+            client.jdbc.postgres.password &amp; readonly.password<br>
+            oauth.app.{sp,sessions,explorer,qmap,pulse}.secret<br>
+            jira.oauth2.password &amp; .salt<br>
+            sessions.secret.key · csrfKey · csrf.secret.key<br>
+            qtestPulseExecutorApiKey · mail.password
+          </div>
+          <span class="tag">creationPolicy: Owner</span>
         </div>
         <div class="box c-ksec">
-          <div class="box-title">🔐 qtest-aes-secret-keys</div>
-          <div class="box-sub">AESsecretKeys (Manager encryption)</div>
+          <div class="box-title">🔐 qtest-aes-secret-keys <span style="font-size:9px;color:#94a3b8;font-weight:400;">(1 key)</span></div>
+          <div class="box-sub">AESsecretKeys — Manager AES encryption</div>
+          <span class="tag">creationPolicy: Owner</span>
         </div>
         <div class="box c-ksec">
-          <div class="box-title">🔐 qtest-scenario-secret</div>
-          <div class="box-sub">Refresh token · jiraCypherKey</div>
+          <div class="box-title">🔐 qtest-scenario-secret <span style="font-size:9px;color:#94a3b8;font-weight:400;">(2 keys)</span></div>
+          <div class="box-sub">qTestScenarioRefreshTokenSecret · jiraCypherKey</div>
+          <span class="tag">creationPolicy: Owner</span>
+        </div>
+        <div class="box c-ksec" style="border-color:#0369a1;color:#7dd3fc;">
+          <div class="box-title">🔐 qtest-i-etl-secret <span style="font-size:9px;color:#94a3b8;font-weight:400;">(4 keys)</span></div>
+          <div class="box-sub">qtestDbPassword · sessionsWriteDbPassword<br>sessionsReadDbPassword · insightsDbPassword<br>
+            <span style="color:#22d3ee;font-size:9px;">All 4 reuse qtest-db-password — no extra GSM secrets</span>
+          </div>
+          <span class="tag" style="color:#22d3ee;background:#071520;border:1px solid #0369a1;">creationPolicy: Owner</span>
+        </div>
+        <div style="font-size:9px;color:#475569;margin-top:4px;padding:6px 8px;background:#111;border-radius:6px;border:1px solid #1e293b;line-height:1.6;">
+          <strong style="color:#64748b;">ESO flow:</strong><br>
+          SecretStore (gcp-secret-store) → WI token<br>
+          → pulls 17 GSM secrets (1 value each)<br>
+          → assembles into 4 K8s Secrets (22 keys total)<br>
+          refreshInterval: 1h · creationPolicy: Owner
         </div>
       </div>
 
