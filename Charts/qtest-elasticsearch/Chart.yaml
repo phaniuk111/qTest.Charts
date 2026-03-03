@@ -14,7 +14,7 @@ type: application
 # No external dependencies — all templates are native K8s manifests.
 
 version: 1.0.0
-appVersion: "8.15.0"
+appVersion: "2025.08"
 kubeVersion: ">=1.24.0-0"
 
 maintainers:

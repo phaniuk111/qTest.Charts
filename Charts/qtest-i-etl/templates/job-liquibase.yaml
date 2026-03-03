@@ -22,6 +22,21 @@ spec:
       {{- if .Values.liquibase.securityContext }}
       securityContext: {{- toYaml .Values.liquibase.securityContext | nindent 8 }}
       {{- end }}
+      {{- if .Values.extraContainers }}
+      # Cloud SQL Auth Proxy as a native sidecar (requires K8s ≥ 1.28).
+      initContainers:
+        - name: cloud-sql-proxy
+          {{- with (index .Values.extraContainers 0) }}
+          image: {{ .image }}
+          args:
+            {{- toYaml .args | nindent 12 }}
+          {{- if .securityContext }}
+          securityContext:
+            {{- toYaml .securityContext | nindent 12 }}
+          {{- end }}
+          {{- end }}
+          restartPolicy: Always
+      {{- end }}
       containers:
         - name: qtestliquibase
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"

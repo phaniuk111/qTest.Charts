@@ -1,21 +1,24 @@
-# GKE Specific Values for qTest Manager
-# ──────────────────────────────────────
+# GKE Specific Values for qTest Manager 2025.8
+# ──────────────────────────────────────────────
 # Usage:
 #   helm dependency update .
 #   helm upgrade --install qtest . -f values-gke-custom.yaml -n qtest
 #
 # Prerequisites:
 #   - GKE cluster with Workload Identity enabled
-#   - Cloud SQL PostgreSQL instance with Private IP enabled
-#   - VPC peering between GKE VPC and Cloud SQL (automatic when Private IP is enabled)
+#   - Cloud SQL PostgreSQL instance with cloudsql.iam_authentication=on
+#   - GSA (qtest-sa) with roles: cloudsql.client, cloudsql.instanceUser, secretmanager.secretAccessor
+#   - IAM DB user created: gcloud sql users create qtest-sa@PROJECT.iam --type=CLOUD_IAM_SERVICE_ACCOUNT
 #   - Istio/ASM with Gateway resource configured in the cluster
-#   - Elasticsearch deployed first (via ECK operator or Charts/qtest-elasticsearch)
+#   - Elasticsearch deployed first (via Charts/qtest-elasticsearch)
 #   - External Secrets Operator installed in the cluster
 #
 # Database connectivity:
-#   Pods connect directly to Cloud SQL via its Private IP address.
-#   No Cloud SQL Auth Proxy sidecar is needed — authentication is
-#   username/password via the qtest-manager-secret (managed by ESO).
+#   Every pod runs a cloud-sql-proxy:2.14.2 sidecar (--auto-iam-authn).
+#   JDBC connects to 127.0.0.1:5432. The proxy intercepts the connection
+#   and substitutes a live IAM OAuth2 token — no password is ever sent
+#   to Cloud SQL. The password fields in JDBC config are set to "unused"
+#   so Java/HikariCP does not reject a blank value at startup.
 #
 # Required PostgreSQL databases (created by the qtest_user superuser):
 #   qtest, sessions, parameters, pulse, scenario
@@ -51,7 +54,7 @@
 
 # ── ServiceAccount (Workload Identity) ───────────────────────────────
 # WI is used by ESO to pull secrets from Google Secret Manager.
-# No longer needed for Cloud SQL Auth Proxy.
+# Used by Cloud SQL Auth Proxy for IAM authentication.
 serviceAccount:
   create: true
   automountsatoken: true
@@ -73,43 +76,64 @@ externalSecrets:
   # ── Google Secret Manager secret names ────────────────────────────
   # One GSM secret per key. Each holds a single plaintext value.
   remoteRefs:
-    # Database (REQUIRED)
-    dbPassword: "qtest-db-password"                       # Cloud SQL superuser password
-    dbReadonlyPassword: "qtest-db-readonly-password"      # can be same as dbPassword
+    # ── DB passwords (dummy "unused" — proxy uses IAM token) ──────────
+    dbPassword:         "qtest-db-password"           # value: "unused"
+    dbReadonlyPassword: "qtest-db-readonly-password"  # value: "unused"
 
-    # OAuth app secrets (REQUIRED — generate with: openssl rand -base64 32)
-    oauthSpSecret: "qtest-oauth-sp-secret"
+    # ── OAuth app secrets (5 — internal microservice tokens) ──────────
+    # Jenkins, Bamboo, Tosca, Web Explorer are NOT used.
+    oauthSpSecret:       "qtest-oauth-sp-secret"
     oauthSessionsSecret: "qtest-oauth-sessions-secret"
     oauthExplorerSecret: "qtest-oauth-explorer-secret"
-    oauthQmapSecret: "qtest-oauth-qmap-secret"
-    oauthJenkinsSecret: "qtest-oauth-jenkins-secret"
-    oauthBambooSecret: "qtest-oauth-bamboo-secret"
-    oauthPulseSecret: "qtest-oauth-pulse-secret"
-    oauthToscaSecret: "qtest-oauth-tosca-secret"
-    oauthWebExplorerSecret: "qtest-oauth-web-explorer-secret"
+    oauthQmapSecret:     "qtest-oauth-qmap-secret"
+    oauthPulseSecret:    "qtest-oauth-pulse-secret"
 
-    # Session & CSRF (REQUIRED — generate with: openssl rand -base64 32)
+    # ── Jira OAuth2 — startup-mandatory internal encryption keys ──────
+    # ⚠️  NOT Jira credentials. qTest won't start if either is empty.
+    jiraOauth2Password: "qtest-jira-oauth2-password"
+    jiraOauth2Salt:     "qtest-jira-oauth2-salt"
+
+    # ── Session & CSRF keys ───────────────────────────────────────────
     sessionsSecretKey: "qtest-sessions-secret-key"
-    csrfKey: "qtest-csrf-key"
-    csrfSecretKey: "qtest-csrf-secret-key"
+    csrfKey:           "qtest-csrf-key"
+    csrfSecretKey:     "qtest-csrf-secret-key"
 
-    # Pulse (REQUIRED — generate with: openssl rand -base64 32)
+    # ── Pulse executor API key ────────────────────────────────────────
     pulseExecutorApiKey: "qtest-pulse-executor-api-key"
 
-    # Encryption (REQUIRED — generate with: openssl rand -base64 32)
+    # ── Mail password (empty — Insights startup requires the key) ─────
+    mailPassword: "qtest-mail-password"
+
+    # ── AES encryption key ────────────────────────────────────────────
     aesSecretKeys: "qtest-aes-secret-keys"
 
-    # Scenario (REQUIRED — generate with: openssl rand -base64 32)
+    # ── Scenario secrets ──────────────────────────────────────────────
     scenarioRefreshTokenSecret: "qtest-scenario-refresh-token-secret"
-    jiraCypherKey: "qtest-jira-cypher-key"
+    jiraCypherKey:              "qtest-jira-cypher-key"
 
-    # Integration keys (OPTIONAL — store empty string "" if unused)
-    mailPassword: "qtest-mail-password"                   # empty — not using SMTP
-    jiraOauth2Password: "qtest-jira-oauth2-password"      # empty — not using Jira
-    jiraOauth2Salt: "qtest-jira-oauth2-salt"              # empty — not using Jira
-    launchdarklySdkKey: "qtest-launchdarkly-sdk-key"      # empty — not using LD
+    # ── LaunchDarkly (empty — not used) ──────────────────────────────
+    launchdarklySdkKey: "qtest-launchdarkly-sdk-key"
+
+    # ── i-ETL DB passwords (dummy "unused" — each has its own GSM name) ─
+    # The i-ETL deployment has hardcoded secretKeyRef lookups for these keys.
+    iEtlQtestDbPassword:          "qtest-i-etl-db-password"
+    iEtlSessionsWriteDbPassword:  "qtest-i-etl-sessions-write-password"
+    iEtlSessionsReadDbPassword:   "qtest-i-etl-sessions-read-password"
+    iEtlInsightsDbPassword:       "qtest-i-etl-insights-db-password"
 
 # ── Scheduling / Affinity ──────────────────────────────────────────
+
+# ── Extra Containers (Cloud SQL Auth Proxy) ──────────────────────────
+extraContainers:
+  - name: cloud-sql-proxy
+    image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.2
+    args:
+      - "--port=5432"
+      - "--auto-iam-authn"
+      - "PROJECT_ID:REGION:INSTANCE_NAME" # TODO: replace
+    securityContext:
+      runAsNonRoot: true
+
 affinity:
   podAntiAffinity:
     preferredDuringSchedulingIgnoredDuringExecution:
@@ -151,13 +175,13 @@ qTestManager:
   # Database – connects directly to Cloud SQL via Private IP
   client:
     jdbc:
-      postgresUrl: "jdbc:postgresql://CLOUD_SQL_PRIVATE_IP:5432/qtest"           # TODO: replace
-      postgresUserName: "qtest_user"              # TODO: replace
+      postgresUrl: "jdbc:postgresql://127.0.0.1:5432/qtest"           # TODO: replace
+      postgresUserName: "my-service-account@project.iam" # TODO: replace with IAM db user              # TODO: replace
       sessionsSchema: "public"
-      postgresPassword: ""                         # injected from qtest-manager-secret
-      postgresReadOnlyUrl: "jdbc:postgresql://CLOUD_SQL_PRIVATE_IP:5432/qtest"   # TODO: replace
-      postgresReadOnlyUserName: "qtest_user"
-      postgresReadOnlyPassword: ""
+      postgresPassword: "unused"                   # dummy — proxy substitutes IAM token
+      postgresReadOnlyUrl: "jdbc:postgresql://127.0.0.1:5432/qtest"   # TODO: replace
+      postgresReadOnlyUserName: "my-service-account@project.iam" # TODO: replace with IAM db user
+      postgresReadOnlyPassword: "unused"           # dummy — proxy substitutes IAM token
 
 # ── Persistence (GCS FUSE CSI) ──────────────────────────────────────
 # qTest Manager requires ReadWriteMany. GKE default PDs do NOT support RWX.
@@ -192,13 +216,27 @@ service:
   type: ClusterIP
 
 # ── Liquibase Migration Job ──────────────────────────────────────────
-# Liquibase connects directly to Cloud SQL Private IP — no sidecar needed.
+# Liquibase connects via 127.0.0.1:5432 through the Cloud SQL Auth Proxy
+# native sidecar (K8s 1.28+ initContainer with restartPolicy: Always).
+# The proxy starts before Liquibase runs, then auto-terminates when the
+# job completes. Reads POSTGRES_PASSWORD from qtest-manager-secret
+# (key: client.jdbc.postgres.password — value: "unused").
 liquibase:
   enabled: true
 
 # ── qTest Launch ─────────────────────────────────────────────────────
 qtest-launch:
   enabled: true
+  extraContainers:
+    - name: cloud-sql-proxy
+      image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.2
+      args:
+        - "--port=5432"
+        - "--auto-iam-authn"
+        - "PROJECT_ID:REGION:INSTANCE_NAME" # TODO: replace
+      securityContext:
+        runAsNonRoot: true
+
   service:
     type: ClusterIP
   ingress:
@@ -209,9 +247,9 @@ qtest-launch:
     annotations:
       iam.gke.io/gcp-service-account: "SA_NAME@PROJECT_ID.iam.gserviceaccount.com"  # TODO
   qTestLaunch:
-    qTestLaunchDBHostName: "CLOUD_SQL_PRIVATE_IP"       # TODO: replace
+    qTestLaunchDBHostName: "127.0.0.1"       # TODO: replace
     qTestLaunchDBPort: "5432"
-    qTestLaunchDBUserName: "qtest_user"
+    qTestLaunchDBUserName: "my-service-account@project.iam" # TODO: replace with IAM db user
     qTestLaunchTCPWD: ""                           # inject via Secret
     qTestLaunchRootURL: "https://launch.gke.example.com" # TODO
     qTestLaunchQTestURL: "https://qtest.gke.example.com" # TODO
@@ -219,6 +257,16 @@ qtest-launch:
 # ── qTest Insights ───────────────────────────────────────────────────
 qtest-insights:
   enabled: true
+  extraContainers:
+    - name: cloud-sql-proxy
+      image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.2
+      args:
+        - "--port=5432"
+        - "--auto-iam-authn"
+        - "PROJECT_ID:REGION:INSTANCE_NAME" # TODO: replace
+      securityContext:
+        runAsNonRoot: true
+
   service:
     type: ClusterIP
   ingress:
@@ -229,17 +277,27 @@ qtest-insights:
     annotations:
       iam.gke.io/gcp-service-account: "SA_NAME@PROJECT_ID.iam.gserviceaccount.com"  # TODO
   qTestInsights:
-    qTestInsightsDBHost: "CLOUD_SQL_PRIVATE_IP"         # TODO: replace
+    qTestInsightsDBHost: "127.0.0.1"         # TODO: replace
     qTestInsightsDBPort: 5432
-    qTestInsightsDBUser: "qtest_user"
-    qTestInsightsWriteQTestDBHost: "CLOUD_SQL_PRIVATE_IP"     # TODO: replace
-    qTestInsightsWriteQTestDBUser: "qtest_user"
-    qTestInsightsSessionDBHost: "CLOUD_SQL_PRIVATE_IP"        # TODO: replace
-    qTestInsightsSessionDBUser: "qtest_user"
+    qTestInsightsDBUser: "my-service-account@project.iam" # TODO: replace with IAM db user
+    qTestInsightsWriteQTestDBHost: "127.0.0.1"     # TODO: replace
+    qTestInsightsWriteQTestDBUser: "my-service-account@project.iam" # TODO: replace with IAM db user
+    qTestInsightsSessionDBHost: "127.0.0.1"        # TODO: replace
+    qTestInsightsSessionDBUser: "my-service-account@project.iam" # TODO: replace with IAM db user
 
 # ── qTest Parameters (TDM) ─────────────────────────────────────────
 qtest-parameters:
   enabled: true
+  extraContainers:
+    - name: cloud-sql-proxy
+      image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.2
+      args:
+        - "--port=5432"
+        - "--auto-iam-authn"
+        - "PROJECT_ID:REGION:INSTANCE_NAME" # TODO: replace
+      securityContext:
+        runAsNonRoot: true
+
   service:
     type: ClusterIP
   ingress:
@@ -251,8 +309,8 @@ qtest-parameters:
       iam.gke.io/gcp-service-account: "SA_NAME@PROJECT_ID.iam.gserviceaccount.com"  # TODO
   qTestParameters:
     qTestParametersDBName: "parameters"
-    qTestParametersDBUserName: "qtest_user"
-    qTestParametersDBHostName: "CLOUD_SQL_PRIVATE_IP"   # TODO: replace
+    qTestParametersDBUserName: "my-service-account@project.iam" # TODO: replace with IAM db user
+    qTestParametersDBHostName: "127.0.0.1"   # TODO: replace
     qTestParametersDBPort: "5432"
     qTestParametersQTestHost: "https://qtest.gke.example.com"  # TODO: replace
     qTestParametersNodeTLSRejectUnAuthorized: "0"
@@ -265,6 +323,16 @@ qtest-parameters:
 # ── qTest Scenario ───────────────────────────────────────────────────
 qtest-scenario:
   enabled: true
+  extraContainers:
+    - name: cloud-sql-proxy
+      image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.2
+      args:
+        - "--port=5432"
+        - "--auto-iam-authn"
+        - "PROJECT_ID:REGION:INSTANCE_NAME" # TODO: replace
+      securityContext:
+        runAsNonRoot: true
+
   service:
     type: ClusterIP
   ingress:
@@ -275,15 +343,25 @@ qtest-scenario:
     annotations:
       iam.gke.io/gcp-service-account: "SA_NAME@PROJECT_ID.iam.gserviceaccount.com"  # TODO
   qTestScenario:
-    qTestScenarioDBHostName: "CLOUD_SQL_PRIVATE_IP"     # TODO: replace
+    qTestScenarioDBHostName: "127.0.0.1"     # TODO: replace
     qTestScenarioDBPort: "5432"
-    qTestScenarioDBUserName: "qtest_user"
+    qTestScenarioDBUserName: "my-service-account@project.iam" # TODO: replace with IAM db user
     qTestScenarioLocalBaseURL: "https://scenario.gke.example.com" # TODO
     qTestScenarioQTestURL: "https://qtest.gke.example.com" # TODO
 
 # ── qTest Session ───────────────────────────────────────────────────
 qtest-session:
   enabled: true
+  extraContainers:
+    - name: cloud-sql-proxy
+      image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.2
+      args:
+        - "--port=5432"
+        - "--auto-iam-authn"
+        - "PROJECT_ID:REGION:INSTANCE_NAME" # TODO: replace
+      securityContext:
+        runAsNonRoot: true
+
   service:
     type: ClusterIP
   ingress:
@@ -296,8 +374,8 @@ qtest-session:
       iam.gke.io/gcp-service-account: "SA_NAME@PROJECT_ID.iam.gserviceaccount.com"  # TODO
   qTestSession:
     qTestSessionDBName: "sessions"
-    qTestSessionDBUserName: "qtest_user"
-    qTestSessionDBHostName: "CLOUD_SQL_PRIVATE_IP"      # TODO: replace
+    qTestSessionDBUserName: "my-service-account@project.iam" # TODO: replace with IAM db user
+    qTestSessionDBHostName: "127.0.0.1"      # TODO: replace
     qTestSessionDBPort: "5432"
     qTestManagerHost: "https://qtest.gke.example.com"  # TODO: replace
     qTestSessionStorageType: "disk_storage"
@@ -311,6 +389,16 @@ qtest-session:
 # ── qTest Pulse ──────────────────────────────────────────────────────
 qtest-pulse:
   enabled: true
+  extraContainers:
+    - name: cloud-sql-proxy
+      image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.2
+      args:
+        - "--port=5432"
+        - "--auto-iam-authn"
+        - "PROJECT_ID:REGION:INSTANCE_NAME" # TODO: replace
+      securityContext:
+        runAsNonRoot: true
+
   service:
     type: ClusterIP
   ingress:
@@ -326,8 +414,8 @@ qtest-pulse:
 
   qTestPulse:
     qTestPulseDBName: pulse
-    qTestPulseDBUserName: "qtest_user"
-    qTestPulseDBHostName: "CLOUD_SQL_PRIVATE_IP"        # TODO: replace
+    qTestPulseDBUserName: "my-service-account@project.iam" # TODO: replace with IAM db user
+    qTestPulseDBHostName: "127.0.0.1"        # TODO: replace
     qTestPulseDBPort: 5432
     qTestPulseRootURL: "https://pulse.gke.example.com"
     qTestPulseQTestURL: "https://qtest.gke.example.com"
@@ -336,6 +424,16 @@ qtest-pulse:
 # ── qTest Insights ETL ───────────────────────────────────────────────
 qtest-insights-etl:
   enabled: true
+  extraContainers:
+    - name: cloud-sql-proxy
+      image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.2
+      args:
+        - "--port=5432"
+        - "--auto-iam-authn"
+        - "PROJECT_ID:REGION:INSTANCE_NAME" # TODO: replace
+      securityContext:
+        runAsNonRoot: true
+
   serviceAccount:
     create: true
     automountsatoken: true
@@ -346,11 +444,11 @@ qtest-insights-etl:
     maxReplicas: 2
 
   qTestInsightsEtl:
-    qTestInsightsEtlDBHost: "CLOUD_SQL_PRIVATE_IP"         # TODO: replace
-    qTestInsightsEtlDBUser: "qtest_user"
-    qTestInsightsEtlWriteQTestDBHost: "CLOUD_SQL_PRIVATE_IP"   # TODO: replace
-    qTestInsightsEtlWriteQTestDBUser: "qtest_user"
-    qTestInsightsEtlSessionDBHost: "CLOUD_SQL_PRIVATE_IP"      # TODO: replace
-    qTestInsightsEtlSessionDBUser: "qtest_user"
-    writeSessionsDBHost: "CLOUD_SQL_PRIVATE_IP"                # TODO: replace
-    writeSessionsDBUser: "qtest_user"
+    qTestInsightsEtlDBHost: "127.0.0.1"         # TODO: replace
+    qTestInsightsEtlDBUser: "my-service-account@project.iam" # TODO: replace with IAM db user
+    qTestInsightsEtlWriteQTestDBHost: "127.0.0.1"   # TODO: replace
+    qTestInsightsEtlWriteQTestDBUser: "my-service-account@project.iam" # TODO: replace with IAM db user
+    qTestInsightsEtlSessionDBHost: "127.0.0.1"      # TODO: replace
+    qTestInsightsEtlSessionDBUser: "my-service-account@project.iam" # TODO: replace with IAM db user
+    writeSessionsDBHost: "127.0.0.1"                # TODO: replace
+    writeSessionsDBUser: "my-service-account@project.iam" # TODO: replace with IAM db user
