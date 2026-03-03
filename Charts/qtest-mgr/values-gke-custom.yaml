@@ -45,16 +45,12 @@
 #   - sessions.gke.example.com
 #   - pulse.gke.example.com
 
-# ── Elasticsearch (via ECK Operator — deploy FIRST) ──────────────────
-# 1. Install the Elastic Cloud on Kubernetes (ECK) Operator:
-#   cd Charts/eck-operator
-#   helm upgrade --install elastic-operator . -n elastic-system --create-namespace
+# ── Elasticsearch (standalone chart — deploy Charts/qtest-elasticsearch FIRST) ─
+# ES is deployed as a separate chart. Deploy it before qtest-mgr:
+#   cd Charts/qtest-elasticsearch
+#   helm upgrade --install qtest-elasticsearch . -f values.yaml -f values-gke.yaml -n qtest
 #
-# 2. Deploy the qTest Elasticsearch Cluster (requires ECK Operator):
-#   cd Charts/qtest-eck-elasticsearch
-#   helm upgrade --install qtest-elasticsearch . -f values.yaml -n qtest
-#
-# The ES cluster will be reachable at: qtest-es-es-http.qtest.svc.cluster.local:9200
+# The ES cluster will be reachable at: qtest-elasticsearch.qtest.svc.cluster.local:9200
 
 # ── ServiceAccount (Workload Identity) ───────────────────────────────
 # WI is used by ESO to pull secrets from Google Secret Manager.
@@ -145,10 +141,10 @@ affinity:
         podAffinityTerm:
           labelSelector:
             matchExpressions:
-              - key: common.k8s.elastic.co/type
+              - key: app.kubernetes.io/name
                 operator: In
                 values:
-                  - elasticsearch
+                  - qtest-elasticsearch
           topologyKey: kubernetes.io/hostname
 
 # ── qTest Manager ────────────────────────────────────────────────────
@@ -156,7 +152,7 @@ qTestManager:
   elasticSearch:
     disable: false
     init: true                                          # create ES indices on first boot
-    host: "qtest-es-es-http"
+    host: "qtest-elasticsearch"
     scheme: http
     port: 9200
 

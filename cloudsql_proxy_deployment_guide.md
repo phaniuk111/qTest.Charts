@@ -195,18 +195,14 @@ cd Charts/qtest-mgr
 # 1. Update dependencies
 helm dependency update .
 
-# 2. Deploy ECK Operator
-cd ../eck-operator
-helm upgrade --install elastic-operator . -n elastic-system --create-namespace --wait
+# 2. Deploy Elasticsearch first
+cd ../qtest-elasticsearch
+helm upgrade --install qtest-elasticsearch . -f values.yaml -f values-gke.yaml -n qtest --create-namespace
 
-# 3. Deploy Elasticsearch cluster via ECK
-cd ../qtest-eck-elasticsearch
-helm upgrade --install qtest-elasticsearch . -f values.yaml -n qtest
-
-# Wait for the ES pod to be ready:
+# Wait for ES pods to be ready:
 # kubectl get pods -n qtest -w
 
-# 4. Deploy qTest Manager
+# 3. Deploy qTest Manager
 cd ../qtest-mgr
 helm upgrade --install qtest . -f values-gke-custom.yaml -n qtest
 ```
@@ -252,7 +248,6 @@ kubectl get jobs -n qtest
 | 6 | Extensions + schema ownership granted on all databases | ☐ |
 | 7 | `values-gke-custom.yaml` with `--auto-iam-authn` proxy + `127.0.0.1` | ☐ |
 | 8 | ESO configured for non-DB secrets (AES keys, OAuth, etc.) | ☐ |
-| 9 | ECK Operator installed in `elastic-system` | ☐ |
-| 10 | Elasticsearch deployed via ECK (`qtest-es`) | ☐ |
-| 11 | `helm upgrade --install` qTest | ☐ |
-| 12 | All pods 2/2 READY, Liquibase completed | ☐ |
+| 9 | Elasticsearch deployed (standalone chart) | ☐ |
+| 10 | `helm upgrade --install` qTest | ☐ |
+| 11 | All pods 2/2 READY, Liquibase completed | ☐ |
