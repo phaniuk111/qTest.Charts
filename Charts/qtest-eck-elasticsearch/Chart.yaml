@@ -1,0 +1,4 @@
+apiVersion: v2
+name: qtest-eck-elasticsearch
+description: Helm chart to deploy Elasticsearch using the Elastic Cloud on Kubernetes (ECK) Operator for qTest.
+version: 1.0.0
