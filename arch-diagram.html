@@ -136,7 +136,7 @@
 <body>
 
 <h1>qTest 2025.8 — GKE + Anthos Service Mesh</h1>
-<p class="subtitle">Helm chart deployment · Cloud SQL Private IP · External Secrets Operator · Istio STRICT mTLS</p>
+<p class="subtitle">Helm chart deployment · Cloud SQL Auth Proxy 2.14.2 · --auto-iam-authn · ESO: 22 GSM secrets → 4 K8s Secrets → 23 keys · Istio STRICT mTLS</p>
 
 <div class="canvas">
 
@@ -355,13 +355,36 @@
 
         </div>
 
+        <!-- Proxy pod diagram -->
+        <div class="stitle" style="margin-top:10px;">Every Pod — Cloud SQL Auth Proxy Sidecar (2/2 READY)</div>
+        <div style="background:#0a150f;border:1px solid #134e2a;border-radius:10px;padding:10px 12px;font-size:10px;color:#94a3b8;display:flex;gap:12px;align-items:stretch;flex-wrap:wrap;">
+          <div style="flex:1;min-width:140px;background:#0c1a10;border:1px dashed #1f4d2c;border-radius:8px;padding:8px 10px;">
+            <div style="font-weight:700;color:#c4b5fd;margin-bottom:4px;">📦 App Container</div>
+            <div style="line-height:1.6;">qTest service<br><span style="color:#7dd3fc;">JDBC → 127.0.0.1:5432</span><br>user: <span style="color:#fde68a;">qtest-sa@PROJECT.iam</span><br>pass: <span style="color:#fbbf24;">"unused"</span></div>
+          </div>
+          <div style="display:flex;flex-direction:column;justify-content:center;color:#334155;font-size:16px;">→</div>
+          <div style="flex:1;min-width:160px;background:#071520;border:1px dashed #0369a1;border-radius:8px;padding:8px 10px;">
+            <div style="font-weight:700;color:#38bdf8;margin-bottom:4px;">🛡️ cloud-sql-proxy:2.14.2</div>
+            <div style="line-height:1.6;">--port=5432<br>--auto-iam-authn<br><span style="color:#475569;">Intercepts "unused" password<br>Generates OAuth2 IAM token<br>Forwards authed connection</span></div>
+          </div>
+          <div style="display:flex;flex-direction:column;justify-content:center;color:#334155;font-size:16px;">→</div>
+          <div style="flex:1;min-width:120px;background:#1a0a00;border:1px dashed #c2410c;border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;justify-content:center;">
+            <div style="font-weight:700;color:#fb923c;margin-bottom:4px;">🐘 Cloud SQL</div>
+            <div style="line-height:1.6;color:#94a3b8;">Private IP<br>IAM auth token<br><span style="color:#475569;">No password stored</span></div>
+          </div>
+        </div>
+        <div style="font-size:9px;color:#334155;margin-top:3px;padding-left:4px;">
+          Deployments: mgr · launch · insights · parameters · scenario · session · pulse · i-etl (8 × extraContainers)<br>
+          Liquibase Jobs: native sidecar initContainer (restartPolicy: Always) — proxy starts first, job runs, proxy auto-terminates
+        </div>
+
         <!-- Jobs + ES row -->
         <div class="row" style="margin-top:10px; gap:10px;">
           <div class="col" style="flex:1;">
             <div class="stitle">Pre-install Job</div>
             <div class="box c-liq">
               <div class="box-title">🗄️ Liquibase Job</div>
-              <div class="box-sub">DB schema migrations<br>Runs before install/upgrade<br>Direct Private IP connection</div>
+              <div class="box-sub">DB schema migrations<br>Runs before install/upgrade<br>Auth Proxy native sidecar · 127.0.0.1:5432</div>
               <span class="badge bd">All 5 DBs</span>
             </div>
           </div>
@@ -382,7 +405,7 @@
     </div>
   </div>
 
-  <div class="zone-arr">↓<span>TCP :5432 · Direct Private IP (no proxy)</span></div>
+  <div class="zone-arr">↓<span>TCP :5432 · cloud-sql-proxy sidecar → Cloud SQL Private IP · IAM token (no password)</span></div>
 
   <!-- ══════════════════════════════════════════
        ZONE 3 — Data
@@ -393,7 +416,12 @@
 
       <div class="box c-db" style="min-width:280px; flex:2;">
         <div class="box-title">🐘 Cloud SQL — PostgreSQL (Private IP)</div>
-        <div class="box-sub">No Auth Proxy · GKE VPC peered to Cloud SQL VPC<br>Auth: username + password from qtest-manager-secret</div>
+        <div class="box-sub">
+          Flag: <span style="color:#fbbf24;">cloudsql.iam_authentication=on</span><br>
+          IAM DB user: <span style="color:#fde68a;">qtest-sa@PROJECT_ID.iam</span><br>
+          Auth: IAM token from cloud-sql-proxy (no password ever sent)<br>
+          GKE VPC peered to Cloud SQL VPC
+        </div>
         <div style="display:flex;gap:5px;margin-top:6px;flex-wrap:wrap;">
           <span class="badge bd">qtest</span>
           <span class="badge bd">sessions</span>
@@ -401,7 +429,7 @@
           <span class="badge bd">pulse</span>
           <span class="badge bd">scenario</span>
         </div>
-        <div class="box-sub" style="margin-top:5px;color:#fb923c;">Replace CLOUD_SQL_PRIVATE_IP in values-gke-custom.yaml</div>
+        <div class="box-sub" style="margin-top:5px;color:#fb923c;">Instance connection name: PROJECT_ID:REGION:INSTANCE_NAME</div>
       </div>
 
       <div class="box c-pvc" style="min-width:180px; flex:1;">
@@ -425,7 +453,7 @@
     </div>
   </div>
 
-  <div class="zone-arr">↓<span>Workload Identity → Secret Manager access</span></div>
+  <div class="zone-arr">↓<span>Workload Identity → Secret Manager access + Cloud SQL IAM auth</span></div>
 
   <!-- ══════════════════════════════════════════
        ZONE 4 — Secrets
@@ -434,47 +462,108 @@
     <span class="zone-label">GCP Secrets Layer</span>
     <div class="row" style="margin-top:30px; gap:12px; flex-wrap:wrap;">
 
-      <div class="box c-eso" style="min-width:200px;">
+      <div class="box c-eso" style="min-width:190px;">
         <div class="box-title">🔄 External Secrets Operator</div>
-        <div class="box-sub">Syncs GSM → K8s Secrets<br>refreshInterval: 1h<br>SecretStore: gcp-secret-store</div>
-        <span class="tag">ExternalSecret CRD</span>
+        <div class="box-sub">
+          4 ExternalSecret resources<br>
+          22 GSM secrets → 23 K8s keys<br>
+          refreshInterval: 1h<br>
+          SecretStore: gcp-secret-store<br>
+          creationPolicy: Owner
+        </div>
+        <span class="tag">helm: external-secrets/external-secrets</span>
       </div>
 
-      <div class="box c-wi" style="min-width:200px;">
-        <div class="box-title">🪪 Workload Identity</div>
-        <div class="box-sub">KSA → GSA binding<br>qtest-sa → GSA<br>roles/secretmanager.secretAccessor</div>
+      <div class="box c-wi" style="min-width:210px;">
+        <div class="box-title">🪪 Workload Identity — qtest-sa</div>
+        <div class="box-sub">
+          KSA qtest-sa → GSA qtest-sa@PROJECT.iam<br>
+          <span style="color:#38bdf8;">roles/cloudsql.client</span> — proxy TCP connect<br>
+          <span style="color:#38bdf8;">roles/cloudsql.instanceUser</span> — IAM DB login<br>
+          <span style="color:#34d399;">roles/secretmanager.secretAccessor</span> — ESO pulls
+        </div>
         <span class="tag">iam.gke.io/gcp-service-account</span>
       </div>
 
       <div class="box c-gsm" style="min-width:260px; flex:1;">
-        <div class="box-title">🔑 Google Secret Manager (24 secrets — 1 per key)</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:3px;margin-top:6px;font-size:10px;">
-          <span style="color:#fde047;">qtest-db-password</span>
-          <span style="color:#fde047;">sessions-secret-key</span>
-          <span style="color:#fde047;">csrf-key</span>
-          <span style="color:#fde047;">csrf-secret-key</span>
-          <span style="color:#fde047;">pulse-executor-api-key</span>
-          <span style="color:#fde047;">aes-secret-keys</span>
-          <span style="color:#fde047;">scenario-refresh-token</span>
-          <span style="color:#fde047;">jira-cypher-key</span>
-          <span style="color:#94a3b8;">oauth.app.* × 9</span>
-          <span style="color:#475569;">mail/jira/ld (empty)</span>
+        <div class="box-title">🔑 Google Secret Manager — 22 GSM secrets → 23 K8s keys</div>
+        <div style="margin-top:8px;font-size:10px;display:flex;flex-direction:column;gap:5px;">
+          <div>
+            <span style="color:#fbbf24;font-weight:700;">① DB placeholders (2) </span>
+            <span style="color:#475569;">qtest-db-password · qtest-db-readonly-password</span>
+            <span style="background:#78350f;color:#fde68a;border-radius:3px;padding:1px 4px;font-size:9px;margin-left:4px;">value: "unused"</span>
+          </div>
+          <div>
+            <span style="color:#fde047;font-weight:700;">② OAuth secrets (5) </span>
+            <span style="color:#475569;">sp · sessions · explorer · qmap · pulse</span>
+          </div>
+          <div style="background:#1f0a00;border:1px solid #c2410c;border-radius:5px;padding:5px 7px;">
+            <span style="color:#fb923c;font-weight:700;">③ Jira OAuth2 (2) ⚠ </span>
+            <span style="color:#fde047;">jira-oauth2-password · jira-oauth2-salt</span><br>
+            <span style="color:#64748b;font-size:9px;">Internal keys — qTest won't start if empty</span>
+          </div>
+          <div>
+            <span style="color:#fde047;font-weight:700;">④ Session/CSRF/Pulse (4) </span>
+            <span style="color:#475569;">sessions-secret-key · csrf-key · csrf-secret-key · pulse-executor-api-key</span>
+          </div>
+          <div>
+            <span style="color:#475569;font-weight:700;">⑤ Mail password (1) </span>
+            <span style="color:#475569;">qtest-mail-password</span>
+            <span style="color:#334155;font-size:9px;"> — empty string</span>
+          </div>
+          <div>
+            <span style="color:#475569;font-weight:700;">⑥ LaunchDarkly (1) </span>
+            <span style="color:#475569;">qtest-launchdarkly-sdk-key</span>
+            <span style="color:#334155;font-size:9px;"> → 2 K8s keys (dot + hyphen)</span>
+          </div>
+          <div>
+            <span style="color:#fde047;font-weight:700;">⑦ AES key (1) </span>
+            <span style="color:#475569;">qtest-aes-secret-keys</span>
+          </div>
+          <div>
+            <span style="color:#fde047;font-weight:700;">⑧ Scenario (2) </span>
+            <span style="color:#475569;">scenario-refresh-token · jira-cypher-key</span>
+          </div>
+          <div>
+            <span style="color:#fbbf24;font-weight:700;">⑨ i-ETL placeholders (4) </span>
+            <span style="color:#475569;">i-etl-db · i-etl-sessions-write · i-etl-sessions-read · i-etl-insights-db</span>
+            <span style="background:#78350f;color:#fde68a;border-radius:3px;padding:1px 4px;font-size:9px;margin-left:4px;">value: "unused"</span>
+          </div>
         </div>
       </div>
 
-      <div class="col" style="gap:7px; flex:1; min-width:220px;">
-        <div class="stitle">K8s Secrets (created by ESO)</div>
+      <div class="col" style="gap:7px; flex:1; min-width:230px;">
+        <div class="stitle">4 K8s Secrets — assembled by ESO (23 keys total)</div>
         <div class="box c-ksec">
-          <div class="box-title">🔐 qtest-manager-secret</div>
-          <div class="box-sub">Consumed by ALL subcharts<br>jdbc.password · sessions.secret.key<br>csrfKey · pulseExecutorApiKey · oauth.*</div>
+          <div class="box-title">🔐 qtest-manager-secret <span style="font-size:9px;color:#94a3b8;font-weight:400;">(16 keys)</span></div>
+          <div class="box-sub">
+            jdbc.password · jdbc.readonly.password <span style="color:#fbbf24;font-size:9px;">("unused")</span><br>
+            oauth.app.{sp,sessions,explorer,qmap,pulse}.secret<br>
+            jira.oauth2.password · jira.oauth2.salt<br>
+            sessions.secret.key · csrfKey · csrf.secret.key<br>
+            qtestPulseExecutorApiKey · mail.password<br>
+            launchdarkly.sdkKey · launchdarkly-sdkKey
+          </div>
+          <span class="tag">creationPolicy: Owner</span>
         </div>
         <div class="box c-ksec">
-          <div class="box-title">🔐 qtest-aes-secret-keys</div>
-          <div class="box-sub">AESsecretKeys (Manager encryption)</div>
+          <div class="box-title">🔐 qtest-aes-secret-keys <span style="font-size:9px;color:#94a3b8;font-weight:400;">(1 key)</span></div>
+          <div class="box-sub">AESsecretKeys — Manager AES encryption</div>
+          <span class="tag">creationPolicy: Owner</span>
         </div>
         <div class="box c-ksec">
-          <div class="box-title">🔐 qtest-scenario-secret</div>
-          <div class="box-sub">Refresh token · jiraCypherKey</div>
+          <div class="box-title">🔐 qtest-scenario-secret <span style="font-size:9px;color:#94a3b8;font-weight:400;">(2 keys)</span></div>
+          <div class="box-sub">qTestScenarioRefreshTokenSecret · jiraCypherKey</div>
+          <span class="tag">creationPolicy: Owner</span>
+        </div>
+        <div class="box c-ksec" style="border-color:#0369a1;color:#7dd3fc;">
+          <div class="box-title">🔐 qtest-i-etl-secret <span style="font-size:9px;color:#94a3b8;font-weight:400;">(4 keys)</span></div>
+          <div class="box-sub">
+            qtestDbPassword · sessionsWriteDbPassword<br>
+            sessionsReadDbPassword · insightsDbPassword<br>
+            <span style="color:#fbbf24;font-size:9px;">All 4 values: "unused" — proxy handles IAM auth</span>
+          </div>
+          <span class="tag" style="color:#22d3ee;background:#071520;border:1px solid #0369a1;">creationPolicy: Owner · 4 distinct GSM secrets</span>
         </div>
       </div>
 
@@ -487,8 +576,9 @@
 <div class="legend">
   <div class="li"><div class="ll" style="background:repeating-linear-gradient(90deg,#475569 0 4px,transparent 4px 8px);"></div>Zone boundary</div>
   <div class="li"><div class="ll" style="background:#2563eb;"></div>Istio / mTLS traffic</div>
-  <div class="li"><div class="ll" style="background:#c2410c;"></div>DB (Private IP)</div>
+  <div class="li"><div class="ll" style="background:#0369a1;"></div>DB (proxy → Private IP · IAM token)</div>
   <div class="li"><div class="ll" style="background:#a16207;"></div>Secret pull (WI→GSM)</div>
+  <div class="li"><span style="display:inline-block;width:30px;height:12px;border-radius:2px;background:#78350f;color:#fde68a;font-size:8px;font-weight:700;text-align:center;line-height:12px;">unused</span> Dummy DB password</div>
   <div class="li"><span class="step s-orange" style="width:14px;height:14px;font-size:9px;">1</span>Login step</div>
   <div class="li"><span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:#f59e0b;margin-right:2px;"></span>Auth dependency</div>
   <div class="li" style="color:#c4b5fd;">■ Manager</div>
